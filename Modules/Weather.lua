@@ -1195,6 +1195,13 @@ function weatherapi:get_weather_theme()
             ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 29, 39)),
             ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 19, 27))
         }), 0.28
+    elseif self.weather_theme == "Nighttime" then
+        return ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(17, 29, 58)),
+            ColorSequenceKeypoint.new(0.34, Color3.fromRGB(27, 38, 76)),
+            ColorSequenceKeypoint.new(0.68, Color3.fromRGB(57, 49, 91)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(112, 65, 91))
+        }), 0.2
     end
 
     return nil, nil
@@ -1938,7 +1945,7 @@ function weatherapi:SetLocationDisplay(display)
 end
 
 function weatherapi:SetWeatherTheme(theme)
-    if theme ~= "Sync" and theme ~= "Light" and theme ~= "Dark" then
+    if theme ~= "Sync" and theme ~= "Light" and theme ~= "Dark" and theme ~= "Nighttime" then
         return false
     end
 
@@ -1949,7 +1956,20 @@ function weatherapi:SetWeatherTheme(theme)
 end
 
 function weatherapi:SetMainTheme(theme)
-    if theme ~= "Sync" and theme ~= "System" and theme ~= "Light" and theme ~= "Dark" then
+    local valid = {
+        ["Discord Blurple"] = true,
+        ["Opera GX"] = true,
+        ["Apple Light Mode"] = true,
+        ["Apple Dark Mode"] = true,
+        Nighttime = true,
+        Auto = true,
+        Sync = true,
+        System = true,
+        Light = true,
+        Dark = true
+    }
+
+    if not valid[theme] then
         return false
     end
 
