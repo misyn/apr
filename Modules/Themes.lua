@@ -27,4 +27,30 @@ Themes.Midnight = {
     Rotation = 38
 }
 
+Themes.Discord = {
+    Gradient = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(88, 101, 242)),
+        ColorSequenceKeypoint.new(0.3, Color3.fromRGB(71, 82, 196)),
+        ColorSequenceKeypoint.new(0.65, Color3.fromRGB(43, 48, 82)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(24, 25, 38))
+    }),
+
+    Base = Color3.fromRGB(30, 31, 36),
+    Panel = Color3.fromRGB(43, 45, 52),
+    Line = Color3.fromRGB(62, 65, 76),
+
+    Text = Color3.fromRGB(249, 249, 251),
+    Muted = Color3.fromRGB(185, 187, 195),
+    Dim = Color3.fromRGB(135, 139, 150),
+
+    Accent = Color3.fromRGB(88, 101, 242),
+    AccentLight = Color3.fromRGB(121, 132, 255),
+    AccentDark = Color3.fromRGB(71, 82, 196),
+
+    Highlight = Color3.fromRGB(163, 171, 255),
+
+    Transparency = 0.75,
+    Rotation = 38
+}
+
 return Themes
