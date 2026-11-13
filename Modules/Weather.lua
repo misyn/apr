@@ -1179,7 +1179,8 @@ function weatherapi:update_lighting()
             self.on_main_theme_update({
                 Theme = self.main_theme,
                 Preset = preset,
-                Color = preset.color,
+                Color = chosen_color,
+                Transparency = chosen_transparency,
                 Rotation = rotation
             })
         end)
@@ -1253,7 +1254,7 @@ function weatherapi:create_ui()
     self.main.Name = "Dashboard"
     self.main.Size = UDim2.fromOffset(320, 550)
     self.main.AnchorPoint = self.follow_main and Vector2.new(1, 1)
-    self.main.Position = UDim2.new(1, -75, 0.5, 275)
+    self.main.Position = self.config.InitialPosition or UDim2.new(1, -75, 0.5, 275)
     self.main.BackgroundColor3 = self.colors.bg
     self.main.BackgroundTransparency = 0.05
     self.main.BorderSizePixel = 0
@@ -1896,6 +1897,7 @@ function weatherapi:bind_updates()
     end)
 end
 
+
 function weatherapi:start()
     if self.started or self.destroyed then
         return self
@@ -1904,48 +1906,98 @@ function weatherapi:start()
     self.started = true
 
     local success, result = pcall(function()
-        for _, filename in ipairs(self.icon_files) do
-            self:download_icon(filename)
+        self:setup_presets()
+        self:create_ui()
+
+        self.gui.Parent = self.config.Parent or self.playergui
+
+        self:save_visuals()
+        self:bind_dragging()
+        self:bind_toggle()
+        self:bind_following()
+
+        local initial_preset = self.lighting_presets.night
+
+        if self.on_main_theme_update then
+            pcall(function()
+                self.on_main_theme_update({
+                    Theme = self.main_theme,
+                    Preset = initial_preset,
+                    Color = initial_preset.color,
+                    Transparency = initial_preset.transparency,
+                    Rotation = 45
+                })
+            end)
         end
 
-        return self:fetch_weather()
+        if self.visible then
+            task.spawn(function()
+                if not self.destroyed then
+                    self:animate_open()
+                end
+            end)
+        else
+            self.main.Visible = false
+            self.main.Size = UDim2.fromOffset(320, 0)
+        end
+
+        return true
     end)
 
     if not success then
-        warn("Weather dashboard failed to initialize: " .. tostring(result))
+        warn("Weather UI initialization failed: " .. tostring(result))
         self.started = false
         return nil
     end
 
-    self.initial_weather = result
-    self.current_weather = self.initial_weather
-    self.utc_offset = self.initial_weather.utc_offset_seconds or -18000
+    task.spawn(function()
+        local fetched, data = pcall(function()
+            for _, filename in ipairs(self.icon_files) do
+                if self.destroyed then
+                    return nil
+                end
 
-    self:setup_presets()
-    self:create_ui()
-    self:apply_weather(self.initial_weather)
-    self:update_clock()
-    self:update_monitor()
-    self:update_lighting()
-    self:update_weather_effects()
-    self:save_visuals()
+                self:download_icon(filename)
+            end
 
-    self.gui.Parent = self.config.Parent or self.playergui
+            if self.destroyed then
+                return nil
+            end
 
-    self:bind_dragging()
-    self:bind_toggle()
-    self:bind_following()
-    self:bind_updates()
+            return self:fetch_weather()
+        end)
 
-    if self.visible then
-        self:animate_open()
-    else
-        self.main.Visible = false
-        self.main.Size = UDim2.fromOffset(320, 0)
-    end
+        if self.destroyed then
+            return
+        end
+
+        if not fetched or not data then
+            warn("Weather data initialization failed: " .. tostring(data))
+            return
+        end
+
+        local applied, apply_error = pcall(function()
+            self.initial_weather = data
+            self.current_weather = data
+            self.utc_offset = data.utc_offset_seconds or -18000
+
+            self:apply_weather(data)
+            self:update_clock()
+            self:update_monitor()
+            self:update_lighting()
+            self:update_weather_effects()
+            self:save_visuals()
+            self:bind_updates()
+        end)
+
+        if not applied then
+            warn("Weather update failed: " .. tostring(apply_error))
+        end
+    end)
 
     return self
 end
+
 
 function weatherapi:destroy()
     if self.destroyed then
