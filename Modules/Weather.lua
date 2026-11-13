@@ -2,6 +2,46 @@
 local weatherapi = {}
 weatherapi.__index = weatherapi
 
+local THEMES_URL = "https://raw.githubusercontent.com/misyn/apr/refs/heads/main/Modules/Themes.lua"
+
+local function loadThemes()
+    local fallback = {
+        Midnight = {
+            Gradient = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(91, 105, 132)),
+                ColorSequenceKeypoint.new(0.38, Color3.fromRGB(52, 61, 79)),
+                ColorSequenceKeypoint.new(0.72, Color3.fromRGB(31, 36, 49)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(17, 19, 26))
+            }),
+            Base = Color3.fromRGB(19, 21, 28),
+            Panel = Color3.fromRGB(28, 32, 42),
+            Line = Color3.fromRGB(57, 65, 82),
+            Text = Color3.fromRGB(244, 246, 251),
+            Muted = Color3.fromRGB(174, 183, 201),
+            Dim = Color3.fromRGB(125, 137, 159),
+            Transparency = 0.16,
+            Rotation = 38
+        }
+    }
+
+    local success, result = pcall(function()
+        local source = game:HttpGet(THEMES_URL)
+        assert(type(source) == "string" and #source > 0, "Themes.lua is empty")
+        local chunk = loadstring(source)
+        assert(type(chunk) == "function", "Themes.lua failed to compile")
+        local themes = chunk()
+        assert(type(themes) == "table" and type(themes.Midnight) == "table", "Midnight theme missing")
+        return themes
+    end)
+
+    if success then
+        return result
+    end
+
+    warn("[APR] Could not load remote Themes.lua; using built-in Midnight fallback: " .. tostring(result))
+    return fallback
+end
+
 function weatherapi.new(config)
     config = config or {}
 
@@ -43,22 +83,12 @@ function weatherapi.new(config)
     self.state = self.location.State or "Florida"
     self.country = self.location.Country or "United States"
 
-    self.theme_config = config.Theme or {}
-    self.weather_theme = self.theme_config.Weather or "Sync"
-    self.main_theme = self.theme_config.Main or "Sync"
-    self.theme_aliases = {
-        ["Discord Blurple"] = "Discord",
-        ["Opera GX"] = "Opera",
-        ["Apple Light Mode"] = "Daylight",
-        ["Apple Dark Mode"] = "Midnight",
-        Nighttime = "Dusk",
-        Light = "Daylight",
-        Dark = "Midnight"
-    }
-    self.weather_theme = self.theme_aliases[self.weather_theme] or self.weather_theme
+    self.theme_profiles = type(config.ThemeModule) == "table" and config.ThemeModule or loadThemes()
+    self.weather_theme = "Midnight"
+    self.main_theme = "Midnight"
     self.effects_enabled = config.Effects ~= false
     self.theme_transparency = type(config.Transparency) == "number" and math.clamp(config.Transparency, 0, 1) or nil
-    self.active_weather_theme = self.weather_theme
+    self.active_weather_theme = "Midnight"
     self.theme_text_colors = nil
 
     self.on_main_theme_update = config.OnMainThemeUpdate
@@ -88,15 +118,16 @@ function weatherapi.new(config)
     self.destroyed = false
     self.started = false
 
+    local midnight = self.theme_profiles.Midnight
     self.colors = {
-        bg = Color3.fromRGB(29, 30, 34),
-        panel = Color3.fromRGB(36, 37, 42),
-        white = Color3.fromRGB(239, 240, 244),
-        muted = Color3.fromRGB(229, 235, 247),
-        dim = Color3.fromRGB(199, 210, 229),
-        night_muted = Color3.fromRGB(190, 199, 218),
-        night_dim = Color3.fromRGB(151, 165, 192),
-        line = Color3.fromRGB(57, 59, 66)
+        bg = midnight.Base,
+        panel = midnight.Panel,
+        white = midnight.Text,
+        muted = midnight.Muted,
+        dim = midnight.Dim,
+        night_muted = midnight.Muted,
+        night_dim = midnight.Dim,
+        line = midnight.Line
     }
 
     self.icon_files = {
@@ -1207,103 +1238,25 @@ function weatherapi:get_sun_rotation(minute, sunrise, sunset)
 end
 
 function weatherapi:get_weather_theme()
-    local theme = self.weather_theme
-
-    if theme == "Auto" then
-        local minute = 720
-        if self.current_weather and self.current_weather.current then
-            minute = self:get_local_minute(self.current_weather.current.time)
-        else
-            local clock = os.date("*t")
-            minute = clock.hour * 60 + clock.min
-        end
-        theme = minute >= 420 and minute < 1140 and "Daylight" or "Dusk"
+    local profile = self.theme_profiles and self.theme_profiles.Midnight
+    if not profile then
+        self.active_weather_theme = "Midnight"
+        return nil, self.theme_transparency, nil
     end
 
-    theme = self.theme_aliases and (self.theme_aliases[theme] or theme) or theme
-
-    local profiles = {
-        Discord = {
-            color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(114, 137, 218)),
-                ColorSequenceKeypoint.new(0.52, Color3.fromRGB(88, 101, 242)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(48, 55, 112))
-            }),
-            transparency = 0.16,
-            bg = Color3.fromRGB(27, 29, 36),
-            panel = Color3.fromRGB(38, 41, 52),
-            line = Color3.fromRGB(69, 75, 103),
-            white = Color3.fromRGB(245, 246, 255),
-            muted = Color3.fromRGB(190, 195, 218),
-            dim = Color3.fromRGB(145, 153, 184)
-        },
-        Opera = {
-            color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 75, 112)),
-                ColorSequenceKeypoint.new(0.48, Color3.fromRGB(183, 35, 86)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(73, 24, 55))
-            }),
-            transparency = 0.14,
-            bg = Color3.fromRGB(25, 22, 29),
-            panel = Color3.fromRGB(39, 29, 39),
-            line = Color3.fromRGB(91, 48, 72),
-            white = Color3.fromRGB(250, 245, 249),
-            muted = Color3.fromRGB(205, 181, 197),
-            dim = Color3.fromRGB(158, 127, 148)
-        },
-        Daylight = {
-            color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(115, 177, 226)),
-                ColorSequenceKeypoint.new(0.48, Color3.fromRGB(180, 211, 232)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(244, 202, 158))
-            }),
-            transparency = 0.10,
-            bg = Color3.fromRGB(232, 237, 244),
-            panel = Color3.fromRGB(245, 247, 250),
-            line = Color3.fromRGB(195, 204, 216),
-            white = Color3.fromRGB(34, 42, 55),
-            muted = Color3.fromRGB(91, 103, 121),
-            dim = Color3.fromRGB(124, 134, 149)
-        },
-        Midnight = {
-            color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(72, 82, 104)),
-                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(38, 43, 55)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(17, 19, 25))
-            }),
-            transparency = 0.12,
-            bg = Color3.fromRGB(20, 22, 28),
-            panel = Color3.fromRGB(30, 33, 41),
-            line = Color3.fromRGB(61, 66, 79),
-            white = Color3.fromRGB(245, 246, 250),
-            muted = Color3.fromRGB(164, 170, 184),
-            dim = Color3.fromRGB(119, 127, 144)
-        },
-        Dusk = {
-            color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 53, 91)),
-                ColorSequenceKeypoint.new(0.38, Color3.fromRGB(76, 75, 132)),
-                ColorSequenceKeypoint.new(0.72, Color3.fromRGB(157, 91, 116)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(225, 145, 111))
-            }),
-            transparency = 0.18,
-            bg = Color3.fromRGB(25, 28, 44),
-            panel = Color3.fromRGB(36, 39, 59),
-            line = Color3.fromRGB(72, 75, 108),
-            white = Color3.fromRGB(246, 241, 247),
-            muted = Color3.fromRGB(190, 180, 204),
-            dim = Color3.fromRGB(143, 139, 174)
-        }
+    local weather_profile = {
+        color = profile.Gradient,
+        transparency = profile.Transparency,
+        bg = profile.Base,
+        panel = profile.Panel,
+        line = profile.Line,
+        white = profile.Text,
+        muted = profile.Muted,
+        dim = profile.Dim
     }
 
-    local profile = profiles[theme]
-    if profile then
-        self.active_weather_theme = theme
-        return profile.color, self.theme_transparency or profile.transparency, profile
-    end
-
-    self.active_weather_theme = "Sync"
-    return nil, self.theme_transparency, nil
+    self.active_weather_theme = "Midnight"
+    return profile.Gradient, self.theme_transparency or profile.Transparency, weather_profile
 end
 
 function weatherapi:apply_theme_palette(profile)
@@ -1312,15 +1265,20 @@ function weatherapi:apply_theme_palette(profile)
     end
 
     if not profile then
+        local theme = self.theme_profiles.Midnight
         profile = {
-            bg = Color3.fromRGB(29, 30, 34),
-            panel = Color3.fromRGB(36, 37, 42),
-            line = Color3.fromRGB(57, 59, 66),
-            white = Color3.fromRGB(239, 240, 244),
-            muted = Color3.fromRGB(229, 235, 247),
-            dim = Color3.fromRGB(199, 210, 229)
+            bg = theme.Base,
+            panel = theme.Panel,
+            line = theme.Line,
+            white = theme.Text,
+            muted = theme.Muted,
+            dim = theme.Dim
         }
-        self.theme_text_colors = nil
+        self.theme_text_colors = {
+            white = theme.Text,
+            muted = theme.Muted,
+            dim = theme.Dim
+        }
     end
 
     local old_panel = self.colors.panel
@@ -1337,7 +1295,7 @@ function weatherapi:apply_theme_palette(profile)
     self.colors.dim = profile.dim
     self.colors.night_muted = profile.muted
     self.colors.night_dim = profile.dim
-    if self.active_weather_theme ~= "Sync" then
+    if self.active_weather_theme == "Midnight" then
         self.theme_text_colors = {
             white = profile.white,
             muted = profile.muted,
@@ -1541,20 +1499,15 @@ function weatherapi:create_ui()
     self.atmosphere = Instance.new("Frame")
     self.atmosphere.Name = "AtmosphericLighting"
     self.atmosphere.Size = UDim2.fromScale(1, 1)
-    self.atmosphere.BackgroundColor3 = Color3.fromRGB(35, 119, 198)
-    self.atmosphere.BackgroundTransparency = 0.22
+    self.atmosphere.BackgroundColor3 = self.theme_profiles.Midnight.Base
+    self.atmosphere.BackgroundTransparency = self.theme_profiles.Midnight.Transparency
     self.atmosphere.BorderSizePixel = 0
     self.atmosphere.ZIndex = 1
     self.atmosphere.Parent = self.main
 
     self.atmos_gradient = Instance.new("UIGradient")
     self.atmos_gradient.Rotation = 45
-    self.atmos_gradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
-        ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
-        ColorSequenceKeypoint.new(0.68, Color3.fromRGB(125, 204, 235)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 194, 112))
-    })
+    self.atmos_gradient.Color = self.theme_profiles.Midnight.Gradient
     self.atmos_gradient.Parent = self.atmosphere
 
     self.effect_layer = Instance.new("Frame")
@@ -2132,28 +2085,11 @@ function weatherapi:SetLocationDisplay(display)
 end
 
 function weatherapi:SetWeatherTheme(theme)
-    local valid = {
-        Sync = true,
-        Auto = true,
-        Discord = true,
-        Opera = true,
-        Daylight = true,
-        Midnight = true,
-        Dusk = true,
-        ["Discord Blurple"] = true,
-        ["Opera GX"] = true,
-        ["Apple Light Mode"] = true,
-        ["Apple Dark Mode"] = true,
-        Nighttime = true,
-        Light = true,
-        Dark = true
-    }
-
-    if not valid[theme] then
+    if theme ~= "Midnight" then
         return false
     end
 
-    self.weather_theme = self.theme_aliases[theme] or theme
+    self.weather_theme = "Midnight"
     self:update_lighting()
     return true
 end
