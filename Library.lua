@@ -48,6 +48,92 @@ local DEFAULT_GRADIENT = ColorSequence.new({
 
 local ATMOSPHERE_BASE = Color3.fromRGB(35, 119, 198)
 
+local THEME_PROFILES = {
+    ["Discord Blurple"] = {
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(88, 101, 242)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(71, 82, 196)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 39, 92))
+        }),
+        Base = Color3.fromRGB(32, 34, 43),
+        Transparency = 0.18,
+        Text = Color3.fromRGB(245, 246, 255),
+        Muted = Color3.fromRGB(190, 194, 220)
+    },
+    ["Opera GX"] = {
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 30, 86)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(125, 15, 55)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 12, 25))
+        }),
+        Base = Color3.fromRGB(22, 15, 23),
+        Transparency = 0.16,
+        Text = Color3.fromRGB(255, 242, 247),
+        Muted = Color3.fromRGB(210, 170, 185)
+    },
+    ["Apple Light Mode"] = {
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 235, 255)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(245, 247, 252)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 225, 195))
+        }),
+        Base = Color3.fromRGB(239, 242, 248),
+        Transparency = 0.08,
+        Text = Color3.fromRGB(35, 39, 48),
+        Muted = Color3.fromRGB(91, 99, 115)
+    },
+    ["Apple Dark Mode"] = {
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(75, 83, 101)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(38, 42, 52)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(17, 19, 25))
+        }),
+        Base = Color3.fromRGB(20, 22, 28),
+        Transparency = 0.12,
+        Text = Color3.fromRGB(245, 246, 250),
+        Muted = Color3.fromRGB(164, 170, 184)
+    },
+    Nighttime = {
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(17, 29, 58)),
+            ColorSequenceKeypoint.new(0.34, Color3.fromRGB(27, 38, 76)),
+            ColorSequenceKeypoint.new(0.68, Color3.fromRGB(57, 49, 91)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(112, 65, 91))
+        }),
+        Base = Color3.fromRGB(17, 22, 39),
+        Transparency = 0.2,
+        Text = Color3.fromRGB(239, 241, 250),
+        Muted = Color3.fromRGB(177, 185, 207)
+    }
+}
+
+local function resolveTheme(theme)
+    if theme ~= "Auto" then
+        return theme
+    end
+
+    local hour = tonumber(os.date("%H")) or 12
+
+    if hour >= 7 and hour < 19 then
+        return "Apple Light Mode"
+    end
+
+    return "Nighttime"
+end
+
+local VALID_THEMES = {
+    ["Discord Blurple"] = true,
+    ["Opera GX"] = true,
+    ["Apple Light Mode"] = true,
+    ["Apple Dark Mode"] = true,
+    Nighttime = true,
+    Auto = true,
+    Sync = true,
+    System = true,
+    Light = true,
+    Dark = true
+}
+
 local function getEnvironment()
     if typeof(getgenv) == "function" then
         local success, result = pcall(getgenv)
@@ -477,6 +563,18 @@ function Library.new(config)
 
     Environment.__APR_LIBRARY_INSTANCE = self
 
+    task.spawn(function()
+        while not self.Destroyed do
+            if self.MainTheme == "Auto" then
+                self:ApplyTheme({
+                    Theme = "Auto"
+                })
+            end
+
+            task.wait(60)
+        end
+    end)
+
     local weather = self:LoadWeather(config.Weather or {})
 
     if not weather then
@@ -584,29 +682,52 @@ function Library:ApplyTheme(data)
     data = data or {}
 
     local theme = data.Theme or self.MainTheme or "Sync"
+    local resolved = resolveTheme(theme)
+    local profile = THEME_PROFILES[resolved]
 
     local color = data.Color
     local transparency = data.Transparency
     local rotation = data.Rotation or 45
 
-    if theme == "Light" then
+    if profile then
+        color = color or profile.Gradient
+        transparency = transparency or profile.Transparency
+        self.Main.BackgroundColor3 = profile.Base
+        self.Atmosphere.BackgroundColor3 = profile.Base
+
+        if self.Title then
+            self.Title.TextColor3 = profile.Text
+        end
+
+        if self.ThemeLabel then
+            self.ThemeLabel.TextColor3 = profile.Muted
+        end
+    elseif resolved == "Light" then
         color = color or LIGHT_GRADIENT
         transparency = transparency or 0.22
-
-    elseif theme == "Dark" then
+        self.Main.BackgroundColor3 = Color3.fromRGB(239, 242, 248)
+        self.Atmosphere.BackgroundColor3 = ATMOSPHERE_BASE
+    elseif resolved == "Dark" then
         color = color or DARK_GRADIENT
         transparency = transparency or 0.28
-
-    elseif theme == "System" then
-        color = color or DEFAULT_GRADIENT
-        transparency = transparency or 0.48
-
+        self.Main.BackgroundColor3 = Color3.fromRGB(29, 30, 34)
+        self.Atmosphere.BackgroundColor3 = ATMOSPHERE_BASE
     else
         color = color or DEFAULT_GRADIENT
         transparency = transparency or 0.48
+        self.Main.BackgroundColor3 = Color3.fromRGB(29, 30, 34)
+        self.Atmosphere.BackgroundColor3 = ATMOSPHERE_BASE
     end
 
-    self.Atmosphere.BackgroundColor3 = ATMOSPHERE_BASE
+    if not profile then
+        if self.Title then
+            self.Title.TextColor3 = Color3.fromRGB(239, 240, 244)
+        end
+
+        if self.ThemeLabel then
+            self.ThemeLabel.TextColor3 = Color3.fromRGB(157, 160, 168)
+        end
+    end
 
     if color then
         self.AtmosphereGradient.Color = color
@@ -622,13 +743,7 @@ function Library:ApplyTheme(data)
 
     self.ThemeTween = TweenService:Create(
         self.Atmosphere,
-
-        TweenInfo.new(
-            1.2,
-            Enum.EasingStyle.Sine,
-            Enum.EasingDirection.InOut
-        ),
-
+        TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
         {
             BackgroundTransparency = transparency
         }
@@ -1231,15 +1346,7 @@ function Library:SetWeatherTheme(theme)
 end
 
 function Library:SetMainTheme(theme)
-    if self.Weather then
-        return self.Weather:SetMainTheme(theme)
-    end
-
-    if theme ~= "Sync"
-        and theme ~= "System"
-        and theme ~= "Light"
-        and theme ~= "Dark" then
-
+    if not VALID_THEMES[theme] then
         return false
     end
 
@@ -1248,6 +1355,12 @@ function Library:SetMainTheme(theme)
     self:ApplyTheme({
         Theme = theme
     })
+
+    if self.Weather and type(self.Weather.SetMainTheme) == "function" then
+        pcall(function()
+            self.Weather:SetMainTheme(theme)
+        end)
+    end
 
     return true
 end
