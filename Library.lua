@@ -27,125 +27,47 @@ local MAIN_EASING_STYLE = Enum.EasingStyle.Quint
 local OPEN_EASING_DIRECTION = Enum.EasingDirection.Out
 local CLOSE_EASING_DIRECTION = Enum.EasingDirection.In
 
-local LIGHT_GRADIENT = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
-    ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
-    ColorSequenceKeypoint.new(0.68, Color3.fromRGB(125, 204, 235)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 194, 112))
-})
+local THEMES_URL = "https://raw.githubusercontent.com/misyn/apr/refs/heads/main/Modules/Themes.lua"
 
-local DARK_GRADIENT = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 39, 49)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 29, 39)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 19, 27))
-})
-
-local DEFAULT_GRADIENT = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
-})
-
-local ATMOSPHERE_BASE = Color3.fromRGB(35, 119, 198)
-
-local THEME_PROFILES = {
-    Discord = {
-        Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(114, 137, 218)),
-            ColorSequenceKeypoint.new(0.52, Color3.fromRGB(88, 101, 242)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(48, 55, 112))
-        }),
-        Base = Color3.fromRGB(27, 29, 36),
-        Transparency = 0.16,
-        Text = Color3.fromRGB(245, 246, 255),
-        Muted = Color3.fromRGB(190, 195, 218)
-    },
-    Opera = {
-        Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 75, 112)),
-            ColorSequenceKeypoint.new(0.48, Color3.fromRGB(183, 35, 86)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(73, 24, 55))
-        }),
-        Base = Color3.fromRGB(25, 22, 29),
-        Transparency = 0.14,
-        Text = Color3.fromRGB(250, 245, 249),
-        Muted = Color3.fromRGB(205, 181, 197)
-    },
-    Daylight = {
-        Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(115, 177, 226)),
-            ColorSequenceKeypoint.new(0.48, Color3.fromRGB(180, 211, 232)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(244, 202, 158))
-        }),
-        Base = Color3.fromRGB(232, 237, 244),
-        Transparency = 0.10,
-        Text = Color3.fromRGB(34, 42, 55),
-        Muted = Color3.fromRGB(91, 103, 121)
-    },
-    Midnight = {
-        Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(72, 82, 104)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(38, 43, 55)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(17, 19, 25))
-        }),
-        Base = Color3.fromRGB(20, 22, 28),
-        Transparency = 0.12,
-        Text = Color3.fromRGB(245, 246, 250),
-        Muted = Color3.fromRGB(164, 170, 184)
-    },
-    Dusk = {
-        Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 53, 91)),
-            ColorSequenceKeypoint.new(0.38, Color3.fromRGB(76, 75, 132)),
-            ColorSequenceKeypoint.new(0.72, Color3.fromRGB(157, 91, 116)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(225, 145, 111))
-        }),
-        Base = Color3.fromRGB(25, 28, 44),
-        Transparency = 0.18,
-        Text = Color3.fromRGB(246, 241, 247),
-        Muted = Color3.fromRGB(190, 180, 204)
+local function loadThemes()
+    local fallback = {
+        Midnight = {
+            Gradient = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(91, 105, 132)),
+                ColorSequenceKeypoint.new(0.38, Color3.fromRGB(52, 61, 79)),
+                ColorSequenceKeypoint.new(0.72, Color3.fromRGB(31, 36, 49)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(17, 19, 26))
+            }),
+            Base = Color3.fromRGB(19, 21, 28),
+            Panel = Color3.fromRGB(28, 32, 42),
+            Line = Color3.fromRGB(57, 65, 82),
+            Text = Color3.fromRGB(244, 246, 251),
+            Muted = Color3.fromRGB(174, 183, 201),
+            Dim = Color3.fromRGB(125, 137, 159),
+            Transparency = 0.16,
+            Rotation = 38
+        }
     }
-}
 
-local THEME_ALIASES = {
-    ["Discord Blurple"] = "Discord",
-    ["Opera GX"] = "Opera",
-    ["Apple Light Mode"] = "Daylight",
-    ["Apple Dark Mode"] = "Midnight",
-    Nighttime = "Dusk"
-}
+    local success, result = pcall(function()
+        local source = game:HttpGet(THEMES_URL)
+        assert(type(source) == "string" and #source > 0, "Themes.lua is empty")
+        local chunk = loadstring(source)
+        assert(type(chunk) == "function", "Themes.lua failed to compile")
+        local themes = chunk()
+        assert(type(themes) == "table" and type(themes.Midnight) == "table", "Midnight theme missing")
+        return themes
+    end)
 
-local function resolveTheme(theme)
-    if THEME_ALIASES[theme] then
-        return THEME_ALIASES[theme]
+    if success then
+        return result
     end
 
-    if theme ~= "Auto" then
-        return theme
-    end
-
-    local hour = tonumber(os.date("%H")) or 12
-    return hour >= 7 and hour < 19 and "Daylight" or "Dusk"
+    warn("[APR] Could not load remote Themes.lua; using built-in Midnight fallback: " .. tostring(result))
+    return fallback
 end
 
-local VALID_THEMES = {
-    Discord = true,
-    Opera = true,
-    Daylight = true,
-    Midnight = true,
-    Dusk = true,
-    Auto = true,
-    Sync = true,
-    System = true,
-    Light = true,
-    Dark = true,
-    ["Discord Blurple"] = true,
-    ["Opera GX"] = true,
-    ["Apple Light Mode"] = true,
-    ["Apple Dark Mode"] = true,
-    Nighttime = true
-}
-
+local THEME_PROFILES = loadThemes()
 local function getEnvironment()
     if typeof(getgenv) == "function" then
         local success, result = pcall(getgenv)
@@ -316,11 +238,7 @@ function Library.new(config)
     self.MainTransparency = config.Weather and (config.Weather.MainTransparency or config.Weather.Transparency) or nil
     self.WeatherTransparency = config.Weather and config.Weather.Transparency or nil
 
-    self.MainTheme = (
-        config.Weather
-        and config.Weather.Theme
-        and config.Weather.Theme.Main
-    ) or "Sync"
+    self.MainTheme = "Midnight"
 
     self.MainTween = nil
     self.ScaleTween = nil
@@ -375,8 +293,8 @@ function Library.new(config)
 
         Size = UDim2.fromOffset(MAIN_WIDTH, 0),
 
-        BackgroundColor3 = Color3.fromRGB(29, 30, 34),
-        BackgroundTransparency = 0.05,
+        BackgroundColor3 = Color3.fromRGB(19, 21, 28),
+        BackgroundTransparency = 0,
 
         BorderSizePixel = 0,
         ClipsDescendants = true
@@ -391,8 +309,8 @@ function Library.new(config)
 
         Size = UDim2.fromScale(1, 1),
 
-        BackgroundColor3 = ATMOSPHERE_BASE,
-        BackgroundTransparency = 0.48,
+        BackgroundColor3 = Color3.fromRGB(19, 21, 28),
+        BackgroundTransparency = 0.16,
 
         BorderSizePixel = 0,
         ZIndex = 1
@@ -400,7 +318,7 @@ function Library.new(config)
 
     self.AtmosphereGradient = create("UIGradient", {
         Rotation = 45,
-        Color = DEFAULT_GRADIENT
+        Color = THEME_PROFILES.Midnight.Gradient
     }, self.Atmosphere)
 
     self.Header = create("Frame", {
@@ -423,7 +341,7 @@ function Library.new(config)
         BackgroundTransparency = 1,
 
         Text = config.Title or "APR Library",
-        TextColor3 = Color3.fromRGB(239, 240, 244),
+        TextColor3 = THEME_PROFILES.Midnight.Text,
 
         TextSize = 13,
         Font = Enum.Font.GothamBold,
@@ -443,8 +361,8 @@ function Library.new(config)
 
         BackgroundTransparency = 1,
 
-        Text = "THEME  " .. string.upper(self.MainTheme),
-        TextColor3 = Color3.fromRGB(157, 160, 168),
+        Text = "THEME  MIDNIGHT",
+        TextColor3 = THEME_PROFILES.Midnight.Muted,
 
         TextSize = 9,
         Font = Enum.Font.GothamSemibold,
@@ -470,11 +388,7 @@ function Library.new(config)
         self.ThemeLabel
     }
 
-    self:ApplyTheme({
-        Theme = self.MainTheme,
-        Color = DEFAULT_GRADIENT,
-        Transparency = 0.48
-    })
+    self:ApplyTheme({Theme = "Midnight"})
 
     table.insert(self.Connections, self.Header.InputBegan:Connect(function(input)
         if self.Destroyed then
@@ -577,18 +491,6 @@ function Library.new(config)
     )
 
     Environment.__APR_LIBRARY_INSTANCE = self
-
-    task.spawn(function()
-        while not self.Destroyed do
-            if self.MainTheme == "Auto" then
-                self:ApplyTheme({
-                    Theme = "Auto"
-                })
-            end
-
-            task.wait(60)
-        end
-    end)
 
     local weather = self:LoadWeather(config.Weather or {})
 
@@ -695,62 +597,30 @@ function Library:ApplyTheme(data)
     end
 
     data = data or {}
-
-    local theme = data.Theme or self.MainTheme or "Sync"
-    local resolved = resolveTheme(theme)
-    local profile = THEME_PROFILES[resolved]
-
-    local color = data.Color
-    local transparency = data.Transparency
-    if type(self.MainTransparency) == "number" then
-        transparency = self.MainTransparency
-    end
-    local rotation = data.Rotation or 45
-
-    if profile then
-        color = color or profile.Gradient
-        transparency = transparency or profile.Transparency
-        self.Main.BackgroundColor3 = profile.Base
-        self.Atmosphere.BackgroundColor3 = profile.Base
-
-        if self.Title then
-            self.Title.TextColor3 = profile.Text
-        end
-
-        if self.ThemeLabel then
-            self.ThemeLabel.TextColor3 = profile.Muted
-        end
-    elseif resolved == "Light" then
-        color = color or LIGHT_GRADIENT
-        transparency = transparency or 0.22
-        self.Main.BackgroundColor3 = Color3.fromRGB(239, 242, 248)
-        self.Atmosphere.BackgroundColor3 = ATMOSPHERE_BASE
-    elseif resolved == "Dark" then
-        color = color or DARK_GRADIENT
-        transparency = transparency or 0.28
-        self.Main.BackgroundColor3 = Color3.fromRGB(29, 30, 34)
-        self.Atmosphere.BackgroundColor3 = ATMOSPHERE_BASE
-    else
-        color = color or DEFAULT_GRADIENT
-        transparency = transparency or 0.48
-        self.Main.BackgroundColor3 = Color3.fromRGB(29, 30, 34)
-        self.Atmosphere.BackgroundColor3 = ATMOSPHERE_BASE
-    end
-
+    local theme = "Midnight"
+    local profile = THEME_PROFILES.Midnight
     if not profile then
-        if self.Title then
-            self.Title.TextColor3 = Color3.fromRGB(239, 240, 244)
-        end
-
-        if self.ThemeLabel then
-            self.ThemeLabel.TextColor3 = Color3.fromRGB(157, 160, 168)
-        end
+        warn("[APR] Midnight theme profile is unavailable.")
+        return
     end
 
-    if color then
-        self.AtmosphereGradient.Color = color
+    local color = data.Color or profile.Gradient
+    local transparency = type(self.MainTransparency) == "number"
+        and self.MainTransparency
+        or (type(data.Transparency) == "number" and data.Transparency or profile.Transparency)
+    local rotation = data.Rotation or profile.Rotation or 38
+
+    self.Main.BackgroundColor3 = profile.Base
+    self.Atmosphere.BackgroundColor3 = profile.Base
+
+    if self.Title then
+        self.Title.TextColor3 = profile.Text
+    end
+    if self.ThemeLabel then
+        self.ThemeLabel.TextColor3 = profile.Muted
     end
 
+    self.AtmosphereGradient.Color = color
     self.AtmosphereGradient.Rotation = rotation
 
     if self.ThemeTween then
@@ -762,17 +632,13 @@ function Library:ApplyTheme(data)
     self.ThemeTween = TweenService:Create(
         self.Atmosphere,
         TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
-        {
-            BackgroundTransparency = transparency
-        }
+        {BackgroundTransparency = math.clamp(transparency, 0, 1)}
     )
-
     self.ThemeTween:Play()
 
     self.MainTheme = theme
-
     if self.ThemeLabel then
-        self.ThemeLabel.Text = "THEME  " .. string.upper(theme)
+        self.ThemeLabel.Text = "THEME  MIDNIGHT"
     end
 end
 
@@ -1019,9 +885,10 @@ function Library:LoadWeather(config)
             },
 
             Theme = {
-                Main = theme.Main or self.MainTheme or "Sync",
-                Weather = theme.Weather or "Sync"
+                Main = "Midnight",
+                Weather = "Midnight"
             },
+            ThemeModule = THEME_PROFILES,
 
             SharedState = self.SharedState,
 
@@ -1040,7 +907,7 @@ function Library:LoadWeather(config)
                     return
                 end
 
-                if self.MainTheme == "Sync" then
+                if self.MainTheme == "Midnight" then
                     self:ApplyTheme(data)
                 else
                     self:ApplyTheme({
@@ -1424,19 +1291,16 @@ function Library:SetWeatherTransparency(value)
 end
 
 function Library:SetMainTheme(theme)
-    if not VALID_THEMES[theme] then
+    if theme ~= "Midnight" then
         return false
     end
 
-    self.MainTheme = theme
-
-    self:ApplyTheme({
-        Theme = theme
-    })
+    self.MainTheme = "Midnight"
+    self:ApplyTheme({Theme = "Midnight"})
 
     if self.Weather and type(self.Weather.SetMainTheme) == "function" then
         pcall(function()
-            self.Weather:SetMainTheme(theme)
+            self.Weather:SetMainTheme("Midnight")
         end)
     end
 
