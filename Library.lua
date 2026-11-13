@@ -763,6 +763,10 @@ function Library:UpdateWeatherTextContrast(weather)
         return
     end
 
+    if weather.theme_text_colors then
+        return
+    end
+
     local gradient = weather.atmos_gradient
 
     if not gradient then
@@ -975,6 +979,7 @@ function Library:LoadWeather(config)
 
             Enabled = true,
             Visible = false,
+            Effects = config.Effects ~= false,
 
             Keybind = config.Keybind or Enum.KeyCode.G,
 
@@ -1340,6 +1345,14 @@ end
 function Library:SetWeatherTheme(theme)
     if self.Weather then
         return self.Weather:SetWeatherTheme(theme)
+    end
+
+    return false
+end
+
+function Library:SetWeatherEffectsEnabled(enabled)
+    if self.Weather and type(self.Weather.SetEffectsEnabled) == "function" then
+        return self.Weather:SetEffectsEnabled(enabled)
     end
 
     return false
