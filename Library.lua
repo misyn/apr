@@ -16,9 +16,28 @@ local MAIN_HEIGHT = 550
 local MAIN_X = 430
 local MAIN_Y = 625
 
+local WEATHER_WIDTH = 320
 local WEATHER_X = 1292
 local WEATHER_Y = 625
 local WEATHER_OFFSET_X = WEATHER_X - MAIN_X - MAIN_WIDTH
+
+local LIGHT_GRADIENT = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 139, 211)),
+    ColorSequenceKeypoint.new(0.48, Color3.fromRGB(91, 183, 231)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(246, 190, 104))
+})
+
+local DARK_GRADIENT = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 39, 49)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 29, 39)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 19, 27))
+})
+
+local DEFAULT_GRADIENT = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
+})
 
 local function getEnvironment()
     if typeof(getgenv) == "function" then
@@ -118,6 +137,7 @@ function Library.new(config)
     self.ScaleTween = nil
     self.AnimationToken = 0
     self.Dragging = false
+    self.WeatherOffset = Vector2.new(WEATHER_OFFSET_X, 0)
 
     self.MainPosition = Vector2.new(MAIN_X, MAIN_Y)
 
@@ -146,7 +166,7 @@ function Library.new(config)
     self.Atmosphere = create("Frame", {
         Name = "AtmosphericLighting",
         Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundColor3 = Color3.fromRGB(54, 139, 211),
         BackgroundTransparency = 0.48,
         BorderSizePixel = 0,
         ZIndex = 1
@@ -154,11 +174,7 @@ function Library.new(config)
 
     self.AtmosphereGradient = create("UIGradient", {
         Rotation = 45,
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
-        })
+        Color = DEFAULT_GRADIENT
     }, self.Atmosphere)
 
     self.Header = create("Frame", {
@@ -210,14 +226,7 @@ function Library.new(config)
     }
 
     self:ApplyTheme({
-        Theme = self.MainTheme,
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
-        }),
-        Transparency = 0.48,
-        Rotation = 45
+        Theme = self.MainTheme
     })
 
     table.insert(self.Connections, self.Header.InputBegan:Connect(function(input)
@@ -271,6 +280,18 @@ function Library.new(config)
         end
     end))
 
+    table.insert(self.Connections, self.Main:GetPropertyChangedSignal("Position"):Connect(function()
+        if not self.Destroyed then
+            self:AlignWeather()
+        end
+    end))
+
+    table.insert(self.Connections, self.Main:GetPropertyChangedSignal("Size"):Connect(function()
+        if not self.Destroyed then
+            self:AlignWeather()
+        end
+    end))
+
     Environment.__APR_LIBRARY_INSTANCE = self
 
     task.spawn(function()
@@ -284,6 +305,37 @@ function Library.new(config)
     return self
 end
 
+function Library:AlignWeather()
+    if self.Destroyed or not self.Main or not self.Weather then
+        return
+    end
+
+    local weather = self.Weather
+
+    local mainPosition = self.Main.Position
+    local mainSize = self.Main.Size
+
+    local targetPosition = UDim2.new(
+        mainPosition.X.Scale + mainSize.X.Scale,
+        mainPosition.X.Offset + mainSize.X.Offset + self.WeatherOffset.X,
+        mainPosition.Y.Scale,
+        mainPosition.Y.Offset + self.WeatherOffset.Y
+    )
+
+    pcall(function()
+        if weather.main then
+            weather.main.AnchorPoint = Vector2.new(0, 1)
+            weather.main.Position = targetPosition
+        end
+    end)
+
+    pcall(function()
+        if type(weather.SetFollowMain) == "function" then
+            weather:SetFollowMain(true, self.WeatherOffset)
+        end
+    end)
+end
+
 function Library:ApplyTheme(data)
     if self.Destroyed or not self.Main then
         return
@@ -293,34 +345,29 @@ function Library:ApplyTheme(data)
 
     local theme = data.Theme or self.MainTheme or "Sync"
     local color = data.Color
-    local transparency = data.Transparency or 0.48
+    local transparency = data.Transparency
     local rotation = data.Rotation or 45
+    local backgroundColor = Color3.fromRGB(29, 30, 34)
 
     if theme == "Light" then
-        color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(230, 234, 241)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(205, 214, 228)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(178, 192, 213))
-        })
-
-        transparency = 0.18
+        color = LIGHT_GRADIENT
+        transparency = 0.08
+        backgroundColor = Color3.fromRGB(55, 111, 151)
 
     elseif theme == "Dark" then
-        color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 39, 49)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 29, 39)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 19, 27))
-        })
-
-        transparency = 0.28
+        color = DARK_GRADIENT
+        transparency = 0.2
+        backgroundColor = Color3.fromRGB(17, 21, 30)
 
     elseif theme == "System" then
-        color = color or ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
-        })
+        color = color or DEFAULT_GRADIENT
+        transparency = transparency or 0.48
+    else
+        color = color or DEFAULT_GRADIENT
+        transparency = transparency or 0.48
     end
+
+    self.Atmosphere.BackgroundColor3 = backgroundColor
 
     if color then
         self.AtmosphereGradient.Color = color
@@ -383,7 +430,7 @@ function Library:LoadWeather(config)
             MainWindow = self.Main,
 
             FollowMain = true,
-            Offset = Vector2.new(WEATHER_OFFSET_X, 0),
+            Offset = self.WeatherOffset,
             InitialPosition = UDim2.fromOffset(WEATHER_X, WEATHER_Y),
 
             Enabled = true,
@@ -460,6 +507,8 @@ function Library:LoadWeather(config)
 
     self.Weather = result
     self.Modules.Weather = result
+
+    self:AlignWeather()
 
     return result
 end
@@ -655,8 +704,10 @@ function Library:SetWeatherLocationDisplay(display)
 end
 
 function Library:SetWeatherFollowMain(enabled, offset)
+    self.WeatherOffset = Vector2.new(WEATHER_OFFSET_X, 0)
+
     if self.Weather then
-        self.Weather:SetFollowMain(true, Vector2.new(WEATHER_OFFSET_X, 0))
+        self:AlignWeather()
     end
 end
 
