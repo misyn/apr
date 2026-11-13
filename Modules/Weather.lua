@@ -1586,19 +1586,21 @@ function weatherapi:set_visual_transparency(transparency, duration, direction)
     end
 end
 
+
 function weatherapi:get_target_position()
     if self.follow_main and self.main_window and self.main_window.Parent then
         local main_position = self.main_window.AbsolutePosition
         local main_size = self.main_window.AbsoluteSize
 
         return UDim2.fromOffset(
-            main_position.X + main_size.X + self.offset.X,
-            main_position.Y + self.offset.Y
+            main_position.X + main_size.X + self.offset.X + 320,
+            main_position.Y + 550
         )
     end
 
     return UDim2.new(1, -75, 0.5, 275)
 end
+
 
 function weatherapi:update_follow_position()
     if not self.follow_main or not self.main_window or not self.main_window.Parent then
