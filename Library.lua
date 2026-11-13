@@ -5,6 +5,7 @@ Library.__index = Library
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -13,18 +14,15 @@ local WEATHER_URL = "https://raw.githubusercontent.com/misyn/apr/refs/heads/main
 
 local MAIN_WIDTH = 600
 local MAIN_HEIGHT = 550
-local MAIN_X = 430
-local MAIN_Y = 625
-
 local WEATHER_WIDTH = 320
-local WEATHER_X = 1292
-local WEATHER_Y = 625
-local WEATHER_OFFSET_X = WEATHER_X - MAIN_X - MAIN_WIDTH
+local MAIN_GAP = 14
+local BOTTOM_PADDING = 24
 
 local LIGHT_GRADIENT = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 139, 211)),
-    ColorSequenceKeypoint.new(0.48, Color3.fromRGB(91, 183, 231)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(246, 190, 104))
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
+    ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
+    ColorSequenceKeypoint.new(0.68, Color3.fromRGB(125, 204, 235)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 194, 112))
 })
 
 local DARK_GRADIENT = ColorSequence.new({
@@ -39,9 +37,12 @@ local DEFAULT_GRADIENT = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
 })
 
+local ATMOSPHERE_BASE = Color3.fromRGB(35, 119, 198)
+
 local function getEnvironment()
     if typeof(getgenv) == "function" then
         local success, result = pcall(getgenv)
+
         if success and result then
             return result
         end
@@ -55,12 +56,41 @@ local Environment = getEnvironment()
 local function getParent()
     if typeof(gethui) == "function" then
         local success, result = pcall(gethui)
+
         if success and result then
             return result
         end
     end
 
     return PlayerGui
+end
+
+local function getViewport()
+    local camera = workspace.CurrentCamera
+
+    if camera then
+        return camera.ViewportSize
+    end
+
+    return Vector2.new(1600, 900)
+end
+
+local function calculateLayout()
+    local viewport = getViewport()
+
+    local totalWidth = MAIN_WIDTH + MAIN_GAP + WEATHER_WIDTH
+
+    local x = math.max(
+        12,
+        math.floor((viewport.X - totalWidth) / 2)
+    )
+
+    local y = math.max(
+        MAIN_HEIGHT + 12,
+        viewport.Y - BOTTOM_PADDING
+    )
+
+    return Vector2.new(x, y)
 end
 
 local function create(class, properties, parent)
@@ -73,6 +103,7 @@ local function create(class, properties, parent)
 
         if not success then
             object:Destroy()
+
             error(
                 "Failed setting " .. tostring(property)
                 .. " on " .. tostring(class)
@@ -83,6 +114,7 @@ local function create(class, properties, parent)
     end
 
     object.Parent = parent
+
     return object
 end
 
@@ -124,6 +156,7 @@ function Library.new(config)
     self.Destroyed = false
     self.Visible = true
     self.Keybind = config.Keybind or Enum.KeyCode.RightControl
+
     self.Modules = {}
     self.Connections = {}
 
@@ -135,11 +168,20 @@ function Library.new(config)
 
     self.MainTween = nil
     self.ScaleTween = nil
+    self.ThemeTween = nil
+
     self.AnimationToken = 0
     self.Dragging = false
-    self.WeatherOffset = Vector2.new(WEATHER_OFFSET_X, 0)
 
-    self.MainPosition = Vector2.new(MAIN_X, MAIN_Y)
+    self.WeatherOffset = Vector2.new(MAIN_GAP, 0)
+    self.MainPosition = calculateLayout()
+
+    if config.InitialPosition then
+        self.MainPosition = Vector2.new(
+            config.InitialPosition.X.Offset,
+            config.InitialPosition.Y.Offset
+        )
+    end
 
     self.Gui = create("ScreenGui", {
         Name = "CustomUILibrary",
@@ -151,10 +193,17 @@ function Library.new(config)
     self.Main = create("Frame", {
         Name = "Main",
         AnchorPoint = Vector2.new(0, 1),
-        Position = UDim2.fromOffset(MAIN_X, MAIN_Y),
+
+        Position = UDim2.fromOffset(
+            self.MainPosition.X,
+            self.MainPosition.Y
+        ),
+
         Size = UDim2.fromOffset(MAIN_WIDTH, 0),
+
         BackgroundColor3 = Color3.fromRGB(29, 30, 34),
         BackgroundTransparency = 0.05,
+
         BorderSizePixel = 0,
         ClipsDescendants = true
     }, self.Gui)
@@ -165,9 +214,12 @@ function Library.new(config)
 
     self.Atmosphere = create("Frame", {
         Name = "AtmosphericLighting",
+
         Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = Color3.fromRGB(54, 139, 211),
+
+        BackgroundColor3 = ATMOSPHERE_BASE,
         BackgroundTransparency = 0.48,
+
         BorderSizePixel = 0,
         ZIndex = 1
     }, self.Main)
@@ -179,44 +231,63 @@ function Library.new(config)
 
     self.Header = create("Frame", {
         Name = "Header",
+
         Size = UDim2.new(1, 0, 0, 48),
+
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
+
         ZIndex = 3
     }, self.Main)
 
     self.Title = create("TextLabel", {
         Name = "Title",
+
         Position = UDim2.fromOffset(23, 10),
         Size = UDim2.new(1, -46, 0, 23),
+
         BackgroundTransparency = 1,
+
         Text = config.Title or "APR Library",
         TextColor3 = Color3.fromRGB(239, 240, 244),
+
         TextSize = 13,
         Font = Enum.Font.GothamBold,
+
         TextXAlignment = Enum.TextXAlignment.Left,
+
         ZIndex = 4
     }, self.Header)
 
     self.ThemeLabel = create("TextLabel", {
         Name = "ThemeLabel",
+
         AnchorPoint = Vector2.new(1, 0),
         Position = UDim2.new(1, -16, 0, 0),
+
         Size = UDim2.fromOffset(115, 42),
+
         BackgroundTransparency = 1,
+
         Text = "THEME  " .. string.upper(self.MainTheme),
         TextColor3 = Color3.fromRGB(157, 160, 168),
+
         TextSize = 9,
         Font = Enum.Font.GothamSemibold,
+
         TextXAlignment = Enum.TextXAlignment.Right,
+
         ZIndex = 4
     }, self.Header)
 
     self.Content = create("Frame", {
         Name = "Content",
+
         Position = UDim2.fromOffset(14, 56),
         Size = UDim2.new(1, -28, 1, -70),
+
         BackgroundTransparency = 1,
+
         ZIndex = 3
     }, self.Main)
 
@@ -228,6 +299,8 @@ function Library.new(config)
     self:ApplyTheme({
         Theme = self.MainTheme
     })
+
+    -- Dragging
 
     table.insert(self.Connections, self.Header.InputBegan:Connect(function(input)
         if self.Destroyed then
@@ -270,6 +343,8 @@ function Library.new(config)
         end
     end))
 
+    -- Main keybind
+
     table.insert(self.Connections, UserInputService.InputBegan:Connect(function(input, processed)
         if processed or self.Destroyed then
             return
@@ -279,6 +354,8 @@ function Library.new(config)
             self:Toggle()
         end
     end))
+
+    -- Weather alignment
 
     table.insert(self.Connections, self.Main:GetPropertyChangedSignal("Position"):Connect(function()
         if not self.Destroyed then
@@ -291,6 +368,54 @@ function Library.new(config)
             self:AlignWeather()
         end
     end))
+
+    -- Screen resizing
+
+    local function update_screen_layout()
+        if self.Destroyed or self.Dragging then
+            return
+        end
+
+        local position = calculateLayout()
+
+        self.MainPosition = position
+
+        self.Main.Position = UDim2.fromOffset(
+            position.X,
+            position.Y
+        )
+
+        self:AlignWeather()
+    end
+
+    local camera = workspace.CurrentCamera
+
+    if camera then
+        table.insert(
+            self.Connections,
+            camera:GetPropertyChangedSignal("ViewportSize"):Connect(update_screen_layout)
+        )
+    end
+
+    table.insert(
+        self.Connections,
+        workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+            if self.Destroyed then
+                return
+            end
+
+            local newCamera = workspace.CurrentCamera
+
+            if newCamera then
+                table.insert(
+                    self.Connections,
+                    newCamera:GetPropertyChangedSignal("ViewportSize"):Connect(update_screen_layout)
+                )
+
+                update_screen_layout()
+            end
+        end)
+    )
 
     Environment.__APR_LIBRARY_INSTANCE = self
 
@@ -305,6 +430,10 @@ function Library.new(config)
     return self
 end
 
+-- =========================================
+-- WEATHER POSITIONING
+-- =========================================
+
 function Library:AlignWeather()
     if self.Destroyed or not self.Main or not self.Weather then
         return
@@ -312,29 +441,36 @@ function Library:AlignWeather()
 
     local weather = self.Weather
 
+    if not weather.main then
+        return
+    end
+
     local mainPosition = self.Main.Position
     local mainSize = self.Main.Size
 
     local targetPosition = UDim2.new(
         mainPosition.X.Scale + mainSize.X.Scale,
         mainPosition.X.Offset + mainSize.X.Offset + self.WeatherOffset.X,
+
         mainPosition.Y.Scale,
         mainPosition.Y.Offset + self.WeatherOffset.Y
     )
 
     pcall(function()
-        if weather.main then
-            weather.main.AnchorPoint = Vector2.new(0, 1)
-            weather.main.Position = targetPosition
-        end
+        weather.main.AnchorPoint = Vector2.new(0, 1)
+        weather.main.Position = targetPosition
     end)
 
-    pcall(function()
-        if type(weather.SetFollowMain) == "function" then
+    if type(weather.SetFollowMain) == "function" then
+        pcall(function()
             weather:SetFollowMain(true, self.WeatherOffset)
-        end
-    end)
+        end)
+    end
 end
+
+-- =========================================
+-- THEME SYSTEM
+-- =========================================
 
 function Library:ApplyTheme(data)
     if self.Destroyed or not self.Main then
@@ -344,28 +480,44 @@ function Library:ApplyTheme(data)
     data = data or {}
 
     local theme = data.Theme or self.MainTheme or "Sync"
+
     local color = data.Color
     local transparency = data.Transparency
     local rotation = data.Rotation or 45
-    local backgroundColor = Color3.fromRGB(29, 30, 34)
+
+    local backgroundColor = ATMOSPHERE_BASE
 
     if theme == "Light" then
+
+        -- Matches Weather:SetWeatherTheme("Light")
+
         color = LIGHT_GRADIENT
-        transparency = 0.08
-        backgroundColor = Color3.fromRGB(55, 111, 151)
+        transparency = 0.22
 
     elseif theme == "Dark" then
+
+        -- Matches Weather:SetWeatherTheme("Dark")
+
         color = DARK_GRADIENT
-        transparency = 0.2
-        backgroundColor = Color3.fromRGB(17, 21, 30)
+        transparency = 0.28
 
     elseif theme == "System" then
+
+        -- System follows the supplied weather atmosphere.
+
         color = color or DEFAULT_GRADIENT
         transparency = transparency or 0.48
+
     else
+
+        -- Sync uses the actual Weather module preset.
+        -- This includes nighttime blue-grey coloring.
+
         color = color or DEFAULT_GRADIENT
         transparency = transparency or 0.48
     end
+
+    -- Keep the same atmospheric base color as Weather.lua.
 
     self.Atmosphere.BackgroundColor3 = backgroundColor
 
@@ -375,17 +527,40 @@ function Library:ApplyTheme(data)
 
     self.AtmosphereGradient.Rotation = rotation
 
-    TweenService:Create(
+    -- Cancel previous theme transitions.
+
+    if self.ThemeTween then
+        pcall(function()
+            self.ThemeTween:Cancel()
+        end)
+    end
+
+    self.ThemeTween = TweenService:Create(
         self.Atmosphere,
-        TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+
+        TweenInfo.new(
+            1.2,
+            Enum.EasingStyle.Sine,
+            Enum.EasingDirection.InOut
+        ),
+
         {
             BackgroundTransparency = transparency
         }
-    ):Play()
+    )
+
+    self.ThemeTween:Play()
 
     self.MainTheme = theme
-    self.ThemeLabel.Text = "THEME  " .. string.upper(theme)
+
+    if self.ThemeLabel then
+        self.ThemeLabel.Text = "THEME  " .. string.upper(theme)
+    end
 end
+
+-- =========================================
+-- WEATHER INITIALIZATION
+-- =========================================
 
 function Library:LoadWeather(config)
     if self.Destroyed or config.Enabled == false then
@@ -396,6 +571,7 @@ function Library:LoadWeather(config)
     local weather
 
     local success, result = xpcall(function()
+
         local source = game:HttpGet(moduleUrl)
 
         assert(
@@ -425,20 +601,30 @@ function Library:LoadWeather(config)
         local location = config.Location or {}
         local theme = config.Theme or {}
 
+        local weatherInitialPosition = UDim2.fromOffset(
+            self.Main.Position.X.Offset + MAIN_WIDTH + self.WeatherOffset.X,
+            self.Main.Position.Y.Offset
+        )
+
         weather = weatherModule.new({
+
             Parent = getParent(),
+
             MainWindow = self.Main,
 
             FollowMain = true,
             Offset = self.WeatherOffset,
-            InitialPosition = UDim2.fromOffset(WEATHER_X, WEATHER_Y),
+
+            InitialPosition = weatherInitialPosition,
 
             Enabled = true,
             Visible = config.Visible ~= false,
+
             Keybind = config.Keybind or Enum.KeyCode.G,
 
             Latitude = location.Latitude or 26.3683,
             Longitude = location.Longitude or -80.1289,
+
             Timezone = location.Timezone or "America/New_York",
 
             Location = {
@@ -454,6 +640,7 @@ function Library:LoadWeather(config)
             },
 
             RefreshInterval = config.RefreshInterval or 300,
+
             Unit = config.Unit or "fahrenheit",
             WindUnit = config.WindUnit or "mph",
 
@@ -478,11 +665,13 @@ function Library:LoadWeather(config)
         end
 
         return weather
+
     end, function(err)
         return debug.traceback(tostring(err), 2)
     end)
 
     if not success then
+
         if weather then
             pcall(function()
                 if type(weather.Destroy) == "function" then
@@ -492,10 +681,12 @@ function Library:LoadWeather(config)
         end
 
         warn("[APR] Weather initialization failed:\n" .. tostring(result))
+
         return nil
     end
 
     if self.Destroyed then
+
         pcall(function()
             if type(result.Destroy) == "function" then
                 result:Destroy()
@@ -513,12 +704,17 @@ function Library:LoadWeather(config)
     return result
 end
 
+-- =========================================
+-- OPEN / CLOSE ANIMATIONS
+-- =========================================
+
 function Library:Animate(open)
     if self.Destroyed or not self.Main then
         return
     end
 
     self.AnimationToken = self.AnimationToken + 1
+
     local token = self.AnimationToken
 
     if self.MainTween then
@@ -534,7 +730,9 @@ function Library:Animate(open)
     end
 
     if open then
+
         self.Main.Visible = true
+
         self.Main.Size = UDim2.fromOffset(MAIN_WIDTH, 0)
         self.MainScale.Scale = 0.92
 
@@ -544,11 +742,13 @@ function Library:Animate(open)
 
         self.MainTween = TweenService:Create(
             self.Main,
+
             TweenInfo.new(
                 0.55,
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.Out
             ),
+
             {
                 Size = UDim2.fromOffset(MAIN_WIDTH, MAIN_HEIGHT)
             }
@@ -556,11 +756,13 @@ function Library:Animate(open)
 
         self.ScaleTween = TweenService:Create(
             self.MainScale,
+
             TweenInfo.new(
                 0.55,
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.Out
             ),
+
             {
                 Scale = 0.92
             }
@@ -570,26 +772,34 @@ function Library:Animate(open)
         self.ScaleTween:Play()
 
         for _, object in ipairs(self.FadeObjects) do
+
             TweenService:Create(
                 object,
+
                 TweenInfo.new(
                     0.42,
                     Enum.EasingStyle.Quint,
                     Enum.EasingDirection.Out
                 ),
+
                 {
                     TextTransparency = 0
                 }
             ):Play()
+
         end
+
     else
+
         self.MainTween = TweenService:Create(
             self.Main,
+
             TweenInfo.new(
                 0.7,
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.In
             ),
+
             {
                 Size = UDim2.fromOffset(MAIN_WIDTH, 0)
             }
@@ -597,11 +807,13 @@ function Library:Animate(open)
 
         self.ScaleTween = TweenService:Create(
             self.MainScale,
+
             TweenInfo.new(
                 0.7,
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.In
             ),
+
             {
                 Scale = 0.92
             }
@@ -609,6 +821,7 @@ function Library:Animate(open)
 
         self.MainTween:Play()
         self.ScaleTween:Play()
+
     end
 
     self.MainTween.Completed:Wait()
@@ -621,6 +834,10 @@ function Library:Animate(open)
         self.Main.Visible = false
     end
 end
+
+-- =========================================
+-- VISIBILITY
+-- =========================================
 
 function Library:SetVisible(value)
     if self.Destroyed then
@@ -664,6 +881,10 @@ function Library:SetKeybind(key)
     self.Keybind = key
 end
 
+-- =========================================
+-- WEATHER CONTROLS
+-- =========================================
+
 function Library:ToggleWeather()
     if self.Weather then
         self.Weather:Toggle()
@@ -689,7 +910,16 @@ function Library:SetMainTheme(theme)
         return self.Weather:SetMainTheme(theme)
     end
 
+    if theme ~= "Sync"
+        and theme ~= "System"
+        and theme ~= "Light"
+        and theme ~= "Dark" then
+
+        return false
+    end
+
     self.MainTheme = theme
+
     self:ApplyTheme({
         Theme = theme
     })
@@ -704,12 +934,26 @@ function Library:SetWeatherLocationDisplay(display)
 end
 
 function Library:SetWeatherFollowMain(enabled, offset)
-    self.WeatherOffset = Vector2.new(WEATHER_OFFSET_X, 0)
+    self.WeatherOffset = offset or Vector2.new(MAIN_GAP, 0)
 
     if self.Weather then
-        self:AlignWeather()
+
+        if type(self.Weather.SetFollowMain) == "function" then
+            self.Weather:SetFollowMain(
+                enabled == true,
+                self.WeatherOffset
+            )
+        end
+
+        if enabled then
+            self:AlignWeather()
+        end
     end
 end
+
+-- =========================================
+-- DESTROY
+-- =========================================
 
 function Library:Destroy()
     if self.Destroyed then
@@ -717,6 +961,7 @@ function Library:Destroy()
     end
 
     self.Destroyed = true
+
     self.AnimationToken = self.AnimationToken + 1
     self.Dragging = false
 
@@ -732,6 +977,12 @@ function Library:Destroy()
         end)
     end
 
+    if self.ThemeTween then
+        pcall(function()
+            self.ThemeTween:Cancel()
+        end)
+    end
+
     for _, connection in ipairs(self.Connections) do
         disconnect(connection)
     end
@@ -739,6 +990,7 @@ function Library:Destroy()
     table.clear(self.Connections)
 
     if self.Weather then
+
         pcall(function()
             self.Weather:Destroy()
         end)
