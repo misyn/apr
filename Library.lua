@@ -39,7 +39,19 @@ local function create(class, properties, parent)
     local object = Instance.new(class)
 
     for property, value in pairs(properties) do
-        object[property] = value
+        local success, result = pcall(function()
+            object[property] = value
+        end)
+
+        if not success then
+            object:Destroy()
+            error(
+                "Failed setting " .. tostring(property)
+                .. " on " .. tostring(class)
+                .. ": " .. tostring(result),
+                2
+            )
+        end
     end
 
     object.Parent = parent
@@ -97,7 +109,11 @@ function Library.new(config)
     self.Modules = {}
     self.Connections = {}
 
-    self.MainTheme = (config.Weather and config.Weather.Theme and config.Weather.Theme.Main) or "Sync"
+    self.MainTheme = (
+        config.Weather
+        and config.Weather.Theme
+        and config.Weather.Theme.Main
+    ) or "Sync"
 
     self.MainTween = nil
     self.ScaleTween = nil
@@ -268,10 +284,16 @@ function Library.new(config)
     Environment.__APR_LIBRARY_INSTANCE = self
 
     task.spawn(function()
-        self:Animate(true)
+        if not self.Destroyed then
+            self:Animate(true)
+        end
     end)
 
-    self:LoadWeather(config.Weather or {}, left + panelWidth + gap, bottom)
+    self:LoadWeather(
+        config.Weather or {},
+        left + panelWidth + gap,
+        bottom
+    )
 
     return self
 end
@@ -294,14 +316,18 @@ function Library:ApplyTheme(data)
             ColorSequenceKeypoint.new(0.5, Color3.fromRGB(205, 214, 228)),
             ColorSequenceKeypoint.new(1, Color3.fromRGB(178, 192, 213))
         })
+
         transparency = 0.18
+
     elseif theme == "Dark" then
         color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 39, 49)),
             ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 29, 39)),
             ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 19, 27))
         })
+
         transparency = 0.28
+
     elseif theme == "System" then
         color = color or ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
@@ -334,29 +360,48 @@ function Library:LoadWeather(config, weatherRight, bottom)
     end
 
     local moduleUrl = config.ModuleURL or WEATHER_URL
+    local weather
 
-    local success, result = pcall(function()
+    local success, result = xpcall(function()
         local source = game:HttpGet(moduleUrl)
-        assert(type(source) == "string" and #source > 0, "Weather source is empty")
+
+        assert(
+            type(source) == "string" and #source > 0,
+            "Weather source is empty"
+        )
 
         local compiled = loadstring(source)
-        assert(type(compiled) == "function", "Weather module failed to compile")
+
+        assert(
+            type(compiled) == "function",
+            "Weather module failed to compile"
+        )
 
         local weatherModule = compiled()
 
-        assert(type(weatherModule) == "table", "Weather module did not return a table")
-        assert(type(weatherModule.new) == "function", "Weather module has no constructor")
+        assert(
+            type(weatherModule) == "table",
+            "Weather module did not return a table"
+        )
+
+        assert(
+            type(weatherModule.new) == "function",
+            "Weather module has no constructor"
+        )
 
         local location = config.Location or {}
         local theme = config.Theme or {}
 
-        local weather = weatherModule.new({
+        weather = weatherModule.new({
             Parent = getParent(),
             MainWindow = self.Main,
 
             FollowMain = config.FollowMain == true,
             Offset = config.Offset or Vector2.new(12, 0),
-            InitialPosition = UDim2.fromOffset(weatherRight + 320, bottom),
+            InitialPosition = UDim2.fromOffset(
+                weatherRight + 320,
+                bottom
+            ),
 
             Enabled = true,
             Visible = config.Visible ~= false,
@@ -390,22 +435,41 @@ function Library:LoadWeather(config, weatherRight, bottom)
         })
 
         assert(weather, "Weather constructor returned nil")
-        assert(type(weather.start) == "function", "Weather module has no start method")
+
+        assert(
+            type(weather.start) == "function",
+            "Weather module has no start method"
+        )
 
         local started = weather:start()
-        assert(started, "Weather failed to start")
+
+        if started == false then
+            error("Weather start returned false")
+        end
 
         return weather
+    end, function(err)
+        return debug.traceback(tostring(err), 2)
     end)
 
     if not success then
-        warn("[APR] Weather failed: " .. tostring(result))
+        if weather then
+            pcall(function()
+                if type(weather.Destroy) == "function" then
+                    weather:Destroy()
+                end
+            end)
+        end
+
+        warn("[APR] Weather initialization failed:\n" .. tostring(result))
         return nil
     end
 
     if self.Destroyed then
         pcall(function()
-            result:Destroy()
+            if type(result.Destroy) == "function" then
+                result:Destroy()
+            end
         end)
 
         return nil
@@ -426,11 +490,15 @@ function Library:Animate(open)
     local token = self.AnimationToken
 
     if self.MainTween then
-        self.MainTween:Cancel()
+        pcall(function()
+            self.MainTween:Cancel()
+        end)
     end
 
     if self.ScaleTween then
-        self.ScaleTween:Cancel()
+        pcall(function()
+            self.ScaleTween:Cancel()
+        end)
     end
 
     if open then
@@ -444,7 +512,11 @@ function Library:Animate(open)
 
         self.MainTween = TweenService:Create(
             self.Main,
-            TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            TweenInfo.new(
+                0.55,
+                Enum.EasingStyle.Quint,
+                Enum.EasingDirection.Out
+            ),
             {
                 Size = UDim2.fromOffset(320, 550)
             }
@@ -452,7 +524,11 @@ function Library:Animate(open)
 
         self.ScaleTween = TweenService:Create(
             self.MainScale,
-            TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            TweenInfo.new(
+                0.55,
+                Enum.EasingStyle.Quint,
+                Enum.EasingDirection.Out
+            ),
             {
                 Scale = 0.92
             }
@@ -464,7 +540,11 @@ function Library:Animate(open)
         for _, object in ipairs(self.FadeObjects) do
             TweenService:Create(
                 object,
-                TweenInfo.new(0.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                TweenInfo.new(
+                    0.42,
+                    Enum.EasingStyle.Quint,
+                    Enum.EasingDirection.Out
+                ),
                 {
                     TextTransparency = 0
                 }
@@ -473,7 +553,11 @@ function Library:Animate(open)
     else
         self.MainTween = TweenService:Create(
             self.Main,
-            TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+            TweenInfo.new(
+                0.7,
+                Enum.EasingStyle.Quint,
+                Enum.EasingDirection.In
+            ),
             {
                 Size = UDim2.fromOffset(320, 0)
             }
@@ -481,7 +565,11 @@ function Library:Animate(open)
 
         self.ScaleTween = TweenService:Create(
             self.MainScale,
-            TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+            TweenInfo.new(
+                0.7,
+                Enum.EasingStyle.Quint,
+                Enum.EasingDirection.In
+            ),
             {
                 Scale = 0.92
             }
@@ -521,7 +609,9 @@ function Library:SetVisible(value)
 
     if self.Weather then
         task.spawn(function()
-            self.Weather:SetVisible(value)
+            if not self.Destroyed and self.Weather then
+                self.Weather:SetVisible(value)
+            end
         end)
     end
 end
@@ -568,7 +658,10 @@ function Library:SetMainTheme(theme)
     end
 
     self.MainTheme = theme
-    self:ApplyTheme({Theme = theme})
+    self:ApplyTheme({
+        Theme = theme
+    })
+
     return true
 end
 
