@@ -45,7 +45,15 @@ function weatherapi.new(config)
 
     self.theme_config = config.Theme or {}
     self.weather_theme = self.theme_config.Weather or "Sync"
+    if self.weather_theme == "Light" then
+        self.weather_theme = "Apple Light Mode"
+    elseif self.weather_theme == "Dark" then
+        self.weather_theme = "Apple Dark Mode"
+    end
     self.main_theme = self.theme_config.Main or "Sync"
+    self.effects_enabled = config.Effects ~= false
+    self.active_weather_theme = self.weather_theme
+    self.theme_text_colors = nil
 
     self.on_main_theme_update = config.OnMainThemeUpdate
     self.on_visibility_changed = config.OnVisibilityChanged
@@ -504,8 +512,10 @@ function weatherapi:apply_text_contrast(preset)
         or preset == self.lighting_presets.sunrise
         or preset == self.lighting_presets.sunset
 
-    local muted = is_day and self.colors.muted or self.colors.night_muted
-    local dim = is_day and self.colors.dim or self.colors.night_dim
+    local muted = self.theme_text_colors and self.theme_text_colors.muted
+        or (is_day and self.colors.muted or self.colors.night_muted)
+    local dim = self.theme_text_colors and self.theme_text_colors.dim
+        or (is_day and self.colors.dim or self.colors.night_dim)
 
     local muted_names = {
         Location = true,
@@ -669,6 +679,15 @@ function weatherapi:update_clock()
         time.sec,
         time.hour >= 12 and "PM" or "AM"
     )
+
+    if self.theme_text_colors then
+        local dim = self.theme_text_colors.dim
+        local muted = self.theme_text_colors.muted
+        local dim_hex = string.format("#%02X%02X%02X", math.floor(dim.R * 255 + 0.5), math.floor(dim.G * 255 + 0.5), math.floor(dim.B * 255 + 0.5))
+        local muted_hex = string.format("#%02X%02X%02X", math.floor(muted.R * 255 + 0.5), math.floor(muted.G * 255 + 0.5), math.floor(muted.B * 255 + 0.5))
+        self.clock_label.Text = self.clock_label.Text:gsub('color="#92949B"', 'color="' .. dim_hex .. '"')
+        self.clock_label.Text = self.clock_label.Text:gsub('color="#B8BAC2"', 'color="' .. muted_hex .. '"')
+    end
 
     self.timezone_label.Text = self:get_timezone_name()
 end
@@ -1182,29 +1201,159 @@ function weatherapi:get_sun_rotation(minute, sunrise, sunset)
 end
 
 function weatherapi:get_weather_theme()
-    if self.weather_theme == "Light" then
-        return ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
-            ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
-            ColorSequenceKeypoint.new(0.68, Color3.fromRGB(125, 204, 235)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 194, 112))
-        }), 0.22
-    elseif self.weather_theme == "Dark" then
-        return ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 39, 49)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 29, 39)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 19, 27))
-        }), 0.28
-    elseif self.weather_theme == "Nighttime" then
-        return ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(17, 29, 58)),
-            ColorSequenceKeypoint.new(0.34, Color3.fromRGB(27, 38, 76)),
-            ColorSequenceKeypoint.new(0.68, Color3.fromRGB(57, 49, 91)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(112, 65, 91))
-        }), 0.2
+    local theme = self.weather_theme
+
+    if theme == "Auto" then
+        local minute = 720
+
+        if self.current_weather and self.current_weather.current then
+            minute = self:get_local_minute(self.current_weather.current.time)
+        else
+            local clock = os.date("*t")
+            minute = clock.hour * 60 + clock.min
+        end
+
+        theme = minute >= 420 and minute < 1140
+            and "Apple Light Mode"
+            or "Nighttime"
     end
 
-    return nil, nil
+    local profiles = {
+        ["Discord Blurple"] = {
+            color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(88, 101, 242)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(71, 82, 196)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 39, 92))
+            }),
+            transparency = 0.18,
+            bg = Color3.fromRGB(32, 34, 43),
+            panel = Color3.fromRGB(40, 43, 56),
+            line = Color3.fromRGB(75, 81, 115),
+            white = Color3.fromRGB(245, 246, 255),
+            muted = Color3.fromRGB(190, 194, 220),
+            dim = Color3.fromRGB(145, 152, 190)
+        },
+        ["Opera GX"] = {
+            color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 30, 86)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(125, 15, 55)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 12, 25))
+            }),
+            transparency = 0.16,
+            bg = Color3.fromRGB(22, 15, 23),
+            panel = Color3.fromRGB(36, 20, 34),
+            line = Color3.fromRGB(93, 35, 65),
+            white = Color3.fromRGB(255, 242, 247),
+            muted = Color3.fromRGB(224, 177, 194),
+            dim = Color3.fromRGB(173, 125, 147)
+        },
+        ["Apple Light Mode"] = {
+            color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 235, 255)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(245, 247, 252)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 225, 195))
+            }),
+            transparency = 0.08,
+            bg = Color3.fromRGB(232, 237, 246),
+            panel = Color3.fromRGB(244, 247, 252),
+            line = Color3.fromRGB(191, 201, 216),
+            white = Color3.fromRGB(35, 39, 48),
+            muted = Color3.fromRGB(77, 86, 103),
+            dim = Color3.fromRGB(112, 121, 137)
+        },
+        ["Apple Dark Mode"] = {
+            color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(75, 83, 101)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(38, 42, 52)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(17, 19, 25))
+            }),
+            transparency = 0.12,
+            bg = Color3.fromRGB(20, 22, 28),
+            panel = Color3.fromRGB(30, 33, 41),
+            line = Color3.fromRGB(61, 66, 79),
+            white = Color3.fromRGB(245, 246, 250),
+            muted = Color3.fromRGB(164, 170, 184),
+            dim = Color3.fromRGB(119, 127, 144)
+        },
+        Nighttime = {
+            color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(17, 29, 58)),
+                ColorSequenceKeypoint.new(0.34, Color3.fromRGB(27, 38, 76)),
+                ColorSequenceKeypoint.new(0.68, Color3.fromRGB(57, 49, 91)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(112, 65, 91))
+            }),
+            transparency = 0.20,
+            bg = Color3.fromRGB(17, 22, 39),
+            panel = Color3.fromRGB(27, 33, 54),
+            line = Color3.fromRGB(57, 67, 99),
+            white = Color3.fromRGB(239, 241, 250),
+            muted = Color3.fromRGB(177, 185, 207),
+            dim = Color3.fromRGB(130, 143, 174)
+        }
+    }
+
+    local profile = profiles[theme]
+
+    if profile then
+        self.active_weather_theme = theme
+        return profile.color, profile.transparency, profile
+    end
+
+    self.active_weather_theme = "Sync"
+    return nil, nil, nil
+end
+
+function weatherapi:apply_theme_palette(profile)
+    if not self.main then
+        return
+    end
+
+    if not profile then
+        profile = {
+            bg = Color3.fromRGB(29, 30, 34),
+            panel = Color3.fromRGB(36, 37, 42),
+            line = Color3.fromRGB(57, 59, 66),
+            white = Color3.fromRGB(239, 240, 244),
+            muted = Color3.fromRGB(229, 235, 247),
+            dim = Color3.fromRGB(199, 210, 229)
+        }
+        self.theme_text_colors = nil
+    end
+
+    local old_panel = self.colors.panel
+    local old_line = self.colors.line
+
+    self.colors.bg = profile.bg
+    self.colors.panel = profile.panel
+    self.colors.line = profile.line
+    self.colors.white = profile.white
+    self.colors.muted = profile.muted
+    self.colors.dim = profile.dim
+    self.colors.night_muted = profile.muted
+    self.colors.night_dim = profile.dim
+    if self.active_weather_theme ~= "Sync" then
+        self.theme_text_colors = {
+            white = profile.white,
+            muted = profile.muted,
+            dim = profile.dim
+        }
+    end
+
+    self.main.BackgroundColor3 = profile.bg
+
+    for _, object in ipairs(self.main:GetDescendants()) do
+        if object:IsA("Frame") or object:IsA("ScrollingFrame") then
+            if object.BackgroundColor3 == old_panel then
+                object.BackgroundColor3 = profile.panel
+            elseif object.BackgroundColor3 == old_line then
+                object.BackgroundColor3 = profile.line
+            end
+        elseif object:IsA("TextLabel") or object:IsA("TextButton") then
+            object.TextColor3 = profile.white
+        end
+    end
+
+    self:apply_text_contrast(self.lighting_presets and self:get_lighting_preset() or nil)
 end
 
 function weatherapi:update_lighting()
@@ -1233,12 +1382,14 @@ function weatherapi:update_lighting()
         rotation = 35 + (night_progress * 290)
     end
 
-    local override_color, override_transparency = self:get_weather_theme()
+    local override_color, override_transparency, theme_profile = self:get_weather_theme()
 
     if override_color then
         chosen_color = override_color
         chosen_transparency = override_transparency
     end
+
+    self:apply_theme_palette(theme_profile)
 
     self.atmos_gradient.Color = chosen_color
 
@@ -1275,6 +1426,22 @@ end
 
 function weatherapi:update_weather_effects()
     if not self.current_weather then
+        return
+    end
+
+    if not self.effects_enabled then
+        self.effect_type = "None"
+        self.star_loop = false
+
+        if self.effect_folder then
+            self.effect_folder:Destroy()
+            self.effect_folder = nil
+        end
+
+        if self.lightning_flash then
+            self.lightning_flash.BackgroundTransparency = 1
+        end
+
         return
     end
 
@@ -1945,26 +2112,14 @@ function weatherapi:SetLocationDisplay(display)
 end
 
 function weatherapi:SetWeatherTheme(theme)
-    if theme ~= "Sync" and theme ~= "Light" and theme ~= "Dark" and theme ~= "Nighttime" then
-        return false
-    end
-
-    self.weather_theme = theme
-    self:update_lighting()
-
-    return true
-end
-
-function weatherapi:SetMainTheme(theme)
     local valid = {
+        Sync = true,
+        Auto = true,
         ["Discord Blurple"] = true,
         ["Opera GX"] = true,
         ["Apple Light Mode"] = true,
         ["Apple Dark Mode"] = true,
         Nighttime = true,
-        Auto = true,
-        Sync = true,
-        System = true,
         Light = true,
         Dark = true
     }
@@ -1973,10 +2128,42 @@ function weatherapi:SetMainTheme(theme)
         return false
     end
 
-    self.main_theme = theme
+    if theme == "Light" then
+        theme = "Apple Light Mode"
+    elseif theme == "Dark" then
+        theme = "Apple Dark Mode"
+    end
+
+    self.weather_theme = theme
     self:update_lighting()
 
     return true
+end
+
+function weatherapi:SetEffectsEnabled(enabled)
+    self.effects_enabled = enabled == true
+
+    if not self.effects_enabled then
+        self.effect_type = "None"
+        self.star_loop = false
+
+        if self.effect_folder then
+            self.effect_folder:Destroy()
+            self.effect_folder = nil
+        end
+
+        if self.lightning_flash then
+            self.lightning_flash.BackgroundTransparency = 1
+        end
+    elseif self.current_weather then
+        self:update_weather_effects()
+    end
+
+    return true
+end
+
+function weatherapi:AreEffectsEnabled()
+    return self.effects_enabled == true
 end
 
 function weatherapi:SetFollowMain(enabled, offset)
