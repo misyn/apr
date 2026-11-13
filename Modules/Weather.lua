@@ -35,6 +35,7 @@ function weatherapi.new(config)
     self.main_window = config.MainWindow
     self.follow_main = config.FollowMain == true
     self.offset = config.Offset or Vector2.new(262, 0)
+    self.following_bound = false
 
     self.location = config.Location or {}
     self.location_display = self.location.Display or "City, State"
@@ -1108,10 +1109,11 @@ end
 function weatherapi:get_weather_theme()
     if self.weather_theme == "Light" then
         return ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(230, 234, 241)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(205, 214, 228)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(178, 192, 213))
-        }), 0.18
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
+            ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
+            ColorSequenceKeypoint.new(0.68, Color3.fromRGB(125, 204, 235)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 194, 112))
+        }), 0.22
     elseif self.weather_theme == "Dark" then
         return ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 39, 49)),
@@ -1268,14 +1270,20 @@ function weatherapi:create_ui()
     self.atmosphere = Instance.new("Frame")
     self.atmosphere.Name = "AtmosphericLighting"
     self.atmosphere.Size = UDim2.fromScale(1, 1)
-    self.atmosphere.BackgroundColor3 = Color3.new(1, 1, 1)
-    self.atmosphere.BackgroundTransparency = 0.78
+    self.atmosphere.BackgroundColor3 = Color3.fromRGB(35, 119, 198)
+    self.atmosphere.BackgroundTransparency = 0.22
     self.atmosphere.BorderSizePixel = 0
     self.atmosphere.ZIndex = 1
     self.atmosphere.Parent = self.main
 
     self.atmos_gradient = Instance.new("UIGradient")
     self.atmos_gradient.Rotation = 45
+    self.atmos_gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
+        ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
+        ColorSequenceKeypoint.new(0.68, Color3.fromRGB(125, 204, 235)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 194, 112))
+    })
     self.atmos_gradient.Parent = self.atmosphere
 
     self.effect_layer = Instance.new("Frame")
@@ -1484,11 +1492,12 @@ function weatherapi:setup_presets()
         },
         day = {
             color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 225, 156)),
-                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(159, 202, 238)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(103, 159, 213))
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
+                ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
+                ColorSequenceKeypoint.new(0.68, Color3.fromRGB(125, 204, 235)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 194, 112))
             }),
-            transparency = 0.70
+            transparency = 0.22
         },
         sunset = {
             color = ColorSequence.new({
@@ -1608,17 +1617,20 @@ function weatherapi:update_follow_position()
         return
     end
 
-    if self.dragging or not self.main then
+    if not self.main then
         return
     end
 
+    self.main.AnchorPoint = Vector2.new(0, 1)
     self.main.Position = self:get_target_position()
 end
 
 function weatherapi:bind_following()
-    if not self.follow_main or not self.main_window then
+    if not self.follow_main or not self.main_window or self.following_bound then
         return
     end
+
+    self.following_bound = true
 
     table.insert(self.connections, self.main_window:GetPropertyChangedSignal("Position"):Connect(function()
         self:update_follow_position()
@@ -1781,6 +1793,8 @@ function weatherapi:SetFollowMain(enabled, offset)
     end
 
     if self.follow_main then
+        self.dragging = false
+        self:bind_following()
         self:update_follow_position()
     end
 end
@@ -1876,7 +1890,7 @@ function weatherapi:bind_updates()
             self:update_weather_effects()
             task.wait(10)
         end
-    end)
+    end))
 
     task.spawn(function()
         while not self.destroyed and self.gui and self.gui.Parent do
@@ -1919,7 +1933,7 @@ function weatherapi:start()
         self:bind_toggle()
         self:bind_following()
 
-        local initial_preset = self.lighting_presets.night
+        local initial_preset = self.lighting_presets.day
 
         if self.on_main_theme_update then
             pcall(function()
@@ -1943,6 +1957,8 @@ function weatherapi:start()
             self.main.Visible = false
             self.main.Size = UDim2.fromOffset(320, 0)
         end
+
+        self:update_follow_position()
 
         return true
     end)
