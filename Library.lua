@@ -232,10 +232,22 @@ function Library.new(config)
     self.Dragging = false
     self.SyncingVisibility = false
     self.WeatherInitializing = true
-    self.AllowWeatherThemeUpdates = false
+    self.AllowWeatherThemeUpdates = true
 
     self.WeatherOffset = getWeatherOffset()
     self.MainPosition = getCenteredMainPosition()
+
+    self.SharedState = {
+        mainVisible = true,
+        weatherVisible = false,
+        weatherPreferredVisible = config.Weather and config.Weather.Visible ~= false or true,
+        animationDuration = MAIN_ANIMATION_TIME,
+        animationEasingStyle = MAIN_EASING_STYLE,
+        openEasingDirection = OPEN_EASING_DIRECTION,
+        closeEasingDirection = CLOSE_EASING_DIRECTION
+    }
+
+    Environment.__APR_SHARED_UI_STATE = self.SharedState
 
     if config.InitialPosition then
         self.MainPosition = Vector2.new(
@@ -358,7 +370,7 @@ function Library.new(config)
     }
 
     self:ApplyTheme({
-        Theme = "Sync",
+        Theme = self.MainTheme,
         Color = DEFAULT_GRADIENT,
         Transparency = 0.48
     })
@@ -469,7 +481,6 @@ function Library.new(config)
 
     if not weather then
         self.WeatherInitializing = false
-        self.AllowWeatherThemeUpdates = true
 
         task.spawn(function()
             if not self.Destroyed then
@@ -651,17 +662,17 @@ function Library:UpdateWeatherTextContrast(weather)
     local clockSecondary
 
     if brightness >= 0.48 then
-        muted = Color3.fromRGB(75, 83, 99)
-        dim = Color3.fromRGB(99, 108, 124)
+        muted = Color3.fromRGB(238, 242, 250)
+        dim = Color3.fromRGB(211, 220, 235)
 
-        clockMuted = Color3.fromRGB(85, 94, 111)
-        clockSecondary = Color3.fromRGB(105, 114, 130)
+        clockMuted = Color3.fromRGB(230, 237, 248)
+        clockSecondary = Color3.fromRGB(247, 249, 255)
     else
         muted = Color3.fromRGB(190, 197, 211)
         dim = Color3.fromRGB(151, 161, 181)
 
-        clockMuted = Color3.fromRGB(169, 179, 199)
-        clockSecondary = Color3.fromRGB(194, 202, 218)
+        clockMuted = Color3.fromRGB(190, 201, 221)
+        clockSecondary = Color3.fromRGB(218, 225, 239)
     end
 
     local originalMuted = self.WeatherOriginalMuted
@@ -677,13 +688,24 @@ function Library:UpdateWeatherTextContrast(weather)
 
     for _, object in ipairs(weather.main:GetDescendants()) do
         if object:IsA("TextLabel") then
-            if originalMuted and object.TextColor3 == originalMuted then
+            local previousMuted = self.WeatherAppliedMuted
+            local previousDim = self.WeatherAppliedDim
+
+            if object.TextColor3 == originalMuted
+                or object.TextColor3 == previousMuted then
+
                 object.TextColor3 = muted
-            elseif originalDim and object.TextColor3 == originalDim then
+
+            elseif object.TextColor3 == originalDim
+                or object.TextColor3 == previousDim then
+
                 object.TextColor3 = dim
             end
         end
     end
+
+    self.WeatherAppliedMuted = muted
+    self.WeatherAppliedDim = dim
 
     if weather.colors then
         weather.colors.muted = muted
@@ -700,6 +722,11 @@ function Library:UpdateWeatherTextContrast(weather)
 
         currentText = currentText:gsub(
             'color="#B8BAC2"',
+            'color="' .. colorToHex(clockSecondary) .. '"'
+        )
+
+        currentText = currentText:gsub(
+            'color="#FFFFFF"',
             'color="' .. colorToHex(clockSecondary) .. '"'
         )
 
@@ -758,18 +785,21 @@ function Library:BindWeatherVisibility(weather)
         local result = originalSetVisible(module, value, ...)
 
         self.WeatherVisible = value
+        self.SharedState.weatherVisible = value
+
+        if not self.SyncingVisibility then
+            self.SharedState.weatherPreferredVisible = value
+        end
 
         return result
     end
 
     if type(weather.Toggle) == "function" then
-        local originalToggle = weather.Toggle
-
         weather.Toggle = function(module, ...)
             local current = module.visible
 
             if current == nil then
-                current = self.WeatherVisible
+                current = self.SharedState.weatherVisible
             end
 
             return module:SetVisible(not current, ...)
@@ -846,9 +876,16 @@ function Library:LoadWeather(config)
             },
 
             Theme = {
-                Main = theme.Main or "Sync",
+                Main = theme.Main or self.MainTheme or "Sync",
                 Weather = theme.Weather or "Sync"
             },
+
+            SharedState = self.SharedState,
+
+            AnimationDuration = MAIN_ANIMATION_TIME,
+            AnimationEasingStyle = MAIN_EASING_STYLE,
+            OpenEasingDirection = OPEN_EASING_DIRECTION,
+            CloseEasingDirection = CLOSE_EASING_DIRECTION,
 
             RefreshInterval = config.RefreshInterval or 300,
 
@@ -856,19 +893,16 @@ function Library:LoadWeather(config)
             WindUnit = config.WindUnit or "mph",
 
             OnMainThemeUpdate = function(data)
-                if self.Destroyed or not self.AllowWeatherThemeUpdates then
+                if self.Destroyed then
                     return
                 end
 
                 if self.MainTheme == "Sync" then
-                    self:ApplyTheme({
-                        Theme = "Sync",
-                        Color = data and data.Color or DEFAULT_GRADIENT,
-                        Transparency = data and data.Transparency or 0.48,
-                        Rotation = data and data.Rotation or 45
-                    })
-                else
                     self:ApplyTheme(data)
+                else
+                    self:ApplyTheme({
+                        Theme = self.MainTheme
+                    })
                 end
             end
         })
@@ -884,27 +918,6 @@ function Library:LoadWeather(config)
 
         if started == false then
             error("Weather start returned false")
-        end
-
-        if weather.atmos_gradient and weather.atmosphere then
-            local weatherTheme = theme.Weather or "Sync"
-
-            if weatherTheme == "Light" then
-                weather.atmos_gradient.Color = LIGHT_GRADIENT
-                weather.atmosphere.BackgroundTransparency = 0.22
-
-            elseif weatherTheme == "Dark" then
-                weather.atmos_gradient.Color = DARK_GRADIENT
-                weather.atmosphere.BackgroundTransparency = 0.28
-
-            elseif weatherTheme == "Sync" then
-                weather.atmos_gradient.Color = DEFAULT_GRADIENT
-                weather.atmosphere.BackgroundTransparency = 0.48
-
-            else
-                weather.atmos_gradient.Color = DEFAULT_GRADIENT
-                weather.atmosphere.BackgroundTransparency = 0.48
-            end
         end
 
         self:BindWeatherContrast(weather)
@@ -943,34 +956,34 @@ function Library:LoadWeather(config)
 
     self:BindWeatherVisibility(result)
 
-    self.WeatherVisible = config.Visible ~= false
+    local initialWeatherVisible = config.Visible ~= false
+
+    self.WeatherVisible = initialWeatherVisible
+    self.SharedState.weatherPreferredVisible = initialWeatherVisible
+    self.SharedState.weatherVisible = false
 
     self:UpdateMainLayout(false)
     self:AlignWeather()
 
     self.WeatherInitializing = false
-    self.AllowWeatherThemeUpdates = true
 
-    if self.WeatherVisible then
-        self.SyncingVisibility = true
+    task.spawn(function()
+        if self.Destroyed then
+            return
+        end
 
-        task.spawn(function()
-            if self.Destroyed or not self.Weather then
-                return
-            end
+        self:Animate(true)
 
-            self:Animate(true)
+        if initialWeatherVisible and self.Weather then
+            self.SyncingVisibility = true
+
             self.Weather:SetVisible(true)
 
             self.SyncingVisibility = false
-        end)
-    else
-        task.spawn(function()
-            if not self.Destroyed then
-                self:Animate(true)
-            end
-        end)
-    end
+
+            self.SharedState.weatherVisible = true
+        end
+    end)
 
     return result
 end
@@ -996,6 +1009,13 @@ function Library:Animate(open)
         end)
     end
 
+    local duration = self.SharedState.animationDuration or MAIN_ANIMATION_TIME
+    local easingStyle = self.SharedState.animationEasingStyle or MAIN_EASING_STYLE
+
+    local easingDirection = open
+        and (self.SharedState.openEasingDirection or OPEN_EASING_DIRECTION)
+        or (self.SharedState.closeEasingDirection or CLOSE_EASING_DIRECTION)
+
     if open then
         self.Main.Visible = true
 
@@ -1010,9 +1030,9 @@ function Library:Animate(open)
             self.Main,
 
             TweenInfo.new(
-                MAIN_ANIMATION_TIME,
-                MAIN_EASING_STYLE,
-                OPEN_EASING_DIRECTION
+                duration,
+                easingStyle,
+                easingDirection
             ),
 
             {
@@ -1024,9 +1044,9 @@ function Library:Animate(open)
             self.MainScale,
 
             TweenInfo.new(
-                MAIN_ANIMATION_TIME,
-                MAIN_EASING_STYLE,
-                OPEN_EASING_DIRECTION
+                duration,
+                easingStyle,
+                easingDirection
             ),
 
             {
@@ -1042,9 +1062,9 @@ function Library:Animate(open)
                 object,
 
                 TweenInfo.new(
-                    0.42,
-                    Enum.EasingStyle.Quint,
-                    Enum.EasingDirection.Out
+                    duration,
+                    easingStyle,
+                    easingDirection
                 ),
 
                 {
@@ -1057,9 +1077,9 @@ function Library:Animate(open)
             self.Main,
 
             TweenInfo.new(
-                MAIN_ANIMATION_TIME,
-                MAIN_EASING_STYLE,
-                CLOSE_EASING_DIRECTION
+                duration,
+                easingStyle,
+                easingDirection
             ),
 
             {
@@ -1071,9 +1091,9 @@ function Library:Animate(open)
             self.MainScale,
 
             TweenInfo.new(
-                MAIN_ANIMATION_TIME,
-                MAIN_EASING_STYLE,
-                CLOSE_EASING_DIRECTION
+                duration,
+                easingStyle,
+                easingDirection
             ),
 
             {
@@ -1089,9 +1109,9 @@ function Library:Animate(open)
                 object,
 
                 TweenInfo.new(
-                    MAIN_ANIMATION_TIME,
-                    Enum.EasingStyle.Quint,
-                    Enum.EasingDirection.In
+                    duration,
+                    easingStyle,
+                    easingDirection
                 ),
 
                 {
@@ -1120,37 +1140,43 @@ function Library:SetVisible(value)
     value = value == true
 
     if self.Visible == value then
-        if self.Weather then
-            local weatherVisible = self.Weather.visible
-
-            if weatherVisible == nil then
-                weatherVisible = self.WeatherVisible
-            end
-
-            if weatherVisible ~= value then
-                self.SyncingVisibility = true
-                self.Weather:SetVisible(value)
-                self.SyncingVisibility = false
-            end
-        end
-
         return
     end
 
     self.Visible = value
+    self.SharedState.mainVisible = value
+
+    local weatherTarget = false
+
+    if value then
+        weatherTarget = self.SharedState.weatherPreferredVisible == true
+    else
+        weatherTarget = false
+    end
 
     if self.Weather then
-        self.SyncingVisibility = true
+        local currentWeatherVisible = self.Weather.visible
 
-        local success, err = pcall(function()
-            self.Weather:SetVisible(value)
-        end)
-
-        self.SyncingVisibility = false
-
-        if not success then
-            warn("[APR] Weather visibility update failed: " .. tostring(err))
+        if currentWeatherVisible == nil then
+            currentWeatherVisible = self.SharedState.weatherVisible
         end
+
+        if currentWeatherVisible ~= weatherTarget then
+            self.SyncingVisibility = true
+
+            local success, err = pcall(function()
+                self.Weather:SetVisible(weatherTarget)
+            end)
+
+            self.SyncingVisibility = false
+
+            if not success then
+                warn("[APR] Weather visibility update failed: " .. tostring(err))
+            end
+        end
+
+        self.WeatherVisible = weatherTarget
+        self.SharedState.weatherVisible = weatherTarget
     end
 
     task.spawn(function()
@@ -1184,7 +1210,7 @@ function Library:ToggleWeather()
     local current = self.Weather.visible
 
     if current == nil then
-        current = self.WeatherVisible
+        current = self.SharedState.weatherVisible
     end
 
     self.Weather:SetVisible(not current)
@@ -1306,6 +1332,10 @@ function Library:Destroy()
 
     if Environment.__APR_LIBRARY_INSTANCE == self then
         Environment.__APR_LIBRARY_INSTANCE = nil
+    end
+
+    if Environment.__APR_SHARED_UI_STATE == self.SharedState then
+        Environment.__APR_SHARED_UI_STATE = nil
     end
 end
 
