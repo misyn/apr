@@ -1252,7 +1252,7 @@ function weatherapi:create_ui()
     self.main = Instance.new("Frame")
     self.main.Name = "Dashboard"
     self.main.Size = UDim2.fromOffset(320, 550)
-    self.main.AnchorPoint = self.follow_main and Vector2.new(0, 0) or Vector2.new(1, 1)
+    self.main.AnchorPoint = self.follow_main and Vector2.new(1, 1)
     self.main.Position = UDim2.new(1, -75, 0.5, 275)
     self.main.BackgroundColor3 = self.colors.bg
     self.main.BackgroundTransparency = 0.05
