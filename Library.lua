@@ -23,6 +23,10 @@ local MAIN_GAP = 10
 local MAIN_ANIMATION_TIME = 0.55
 local LAYOUT_ANIMATION_TIME = 0.42
 
+local MAIN_EASING_STYLE = Enum.EasingStyle.Quint
+local OPEN_EASING_DIRECTION = Enum.EasingDirection.Out
+local CLOSE_EASING_DIRECTION = Enum.EasingDirection.In
+
 local LIGHT_GRADIENT = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
     ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
@@ -82,7 +86,6 @@ end
 
 local function getCenteredMainPosition()
     local viewport = getViewport()
-
     local visualWidth = MAIN_WIDTH * MAIN_SCALE
 
     local x = (viewport.X - visualWidth) / 2
@@ -93,27 +96,6 @@ local function getCenteredMainPosition()
     return Vector2.new(
         math.floor(x),
         math.floor(y)
-    )
-end
-
-local function calculateLayout()
-    local viewport = getViewport()
-
-    local mainVisualWidth = MAIN_WIDTH * MAIN_SCALE
-    local weatherVisualWidth = WEATHER_WIDTH * WEATHER_SCALE
-
-    local totalWidth = mainVisualWidth + MAIN_GAP + weatherVisualWidth
-
-    local visualLeft = (viewport.X - totalWidth) / 2
-
-    local mainX = visualLeft
-        - ((MAIN_WIDTH - mainVisualWidth) / 2)
-
-    local mainY = (viewport.Y + MAIN_HEIGHT) / 2
-
-    return Vector2.new(
-        math.floor(mainX),
-        math.floor(mainY)
     )
 end
 
@@ -246,11 +228,14 @@ function Library.new(config)
 
     self.AnimationToken = 0
     self.LayoutToken = 0
+
     self.Dragging = false
     self.SyncingVisibility = false
+    self.WeatherInitializing = true
+    self.AllowWeatherThemeUpdates = false
 
     self.WeatherOffset = getWeatherOffset()
-    self.MainPosition = calculateLayout()
+    self.MainPosition = getCenteredMainPosition()
 
     if config.InitialPosition then
         self.MainPosition = Vector2.new(
@@ -373,7 +358,9 @@ function Library.new(config)
     }
 
     self:ApplyTheme({
-        Theme = self.MainTheme
+        Theme = "Sync",
+        Color = DEFAULT_GRADIENT,
+        Transparency = 0.48
     })
 
     table.insert(self.Connections, self.Header.InputBegan:Connect(function(input)
@@ -481,6 +468,9 @@ function Library.new(config)
     local weather = self:LoadWeather(config.Weather or {})
 
     if not weather then
+        self.WeatherInitializing = false
+        self.AllowWeatherThemeUpdates = true
+
         task.spawn(function()
             if not self.Destroyed then
                 self:Animate(true)
@@ -496,13 +486,7 @@ function Library:UpdateMainLayout(animate)
         return
     end
 
-    local target
-
-    if self.WeatherVisible then
-        target = calculateLayout()
-    else
-        target = getCenteredMainPosition()
-    end
+    local target = getCenteredMainPosition()
 
     self.MainPosition = target
 
@@ -521,7 +505,7 @@ function Library:UpdateMainLayout(animate)
         end)
     end
 
-    if animate then
+    if animate and self.Visible then
         self.LayoutTween = TweenService:Create(
             self.Main,
 
@@ -595,12 +579,12 @@ function Library:ApplyTheme(data)
     local rotation = data.Rotation or 45
 
     if theme == "Light" then
-        color = LIGHT_GRADIENT
-        transparency = 0.22
+        color = color or LIGHT_GRADIENT
+        transparency = transparency or 0.22
 
     elseif theme == "Dark" then
-        color = DARK_GRADIENT
-        transparency = 0.28
+        color = color or DARK_GRADIENT
+        transparency = transparency or 0.28
 
     elseif theme == "System" then
         color = color or DEFAULT_GRADIENT
@@ -766,20 +750,30 @@ function Library:BindWeatherVisibility(weather)
 
     local originalSetVisible = weather.SetVisible
 
+    self.OriginalWeatherSetVisible = originalSetVisible
+
     weather.SetVisible = function(module, value, ...)
         value = value == true
-
-        local previous = self.WeatherVisible
 
         local result = originalSetVisible(module, value, ...)
 
         self.WeatherVisible = value
 
-        if not self.Destroyed and previous ~= value and not self.SyncingVisibility then
-            self:UpdateMainLayout(true)
-        end
-
         return result
+    end
+
+    if type(weather.Toggle) == "function" then
+        local originalToggle = weather.Toggle
+
+        weather.Toggle = function(module, ...)
+            local current = module.visible
+
+            if current == nil then
+                current = self.WeatherVisible
+            end
+
+            return module:SetVisible(not current, ...)
+        end
     end
 end
 
@@ -852,7 +846,7 @@ function Library:LoadWeather(config)
             },
 
             Theme = {
-                Main = theme.Main or self.MainTheme or "Sync",
+                Main = theme.Main or "Sync",
                 Weather = theme.Weather or "Sync"
             },
 
@@ -862,7 +856,18 @@ function Library:LoadWeather(config)
             WindUnit = config.WindUnit or "mph",
 
             OnMainThemeUpdate = function(data)
-                if not self.Destroyed then
+                if self.Destroyed or not self.AllowWeatherThemeUpdates then
+                    return
+                end
+
+                if self.MainTheme == "Sync" then
+                    self:ApplyTheme({
+                        Theme = "Sync",
+                        Color = data and data.Color or DEFAULT_GRADIENT,
+                        Transparency = data and data.Transparency or 0.48,
+                        Rotation = data and data.Rotation or 45
+                    })
+                else
                     self:ApplyTheme(data)
                 end
             end
@@ -891,6 +896,10 @@ function Library:LoadWeather(config)
             elseif weatherTheme == "Dark" then
                 weather.atmos_gradient.Color = DARK_GRADIENT
                 weather.atmosphere.BackgroundTransparency = 0.28
+
+            elseif weatherTheme == "Sync" then
+                weather.atmos_gradient.Color = DEFAULT_GRADIENT
+                weather.atmosphere.BackgroundTransparency = 0.48
 
             else
                 weather.atmos_gradient.Color = DEFAULT_GRADIENT
@@ -937,22 +946,29 @@ function Library:LoadWeather(config)
     self.WeatherVisible = config.Visible ~= false
 
     self:UpdateMainLayout(false)
+    self:AlignWeather()
 
-    task.spawn(function()
-        if self.Destroyed then
-            return
-        end
-
-        self:Animate(true)
-    end)
+    self.WeatherInitializing = false
+    self.AllowWeatherThemeUpdates = true
 
     if self.WeatherVisible then
+        self.SyncingVisibility = true
+
         task.spawn(function()
             if self.Destroyed or not self.Weather then
                 return
             end
 
+            self:Animate(true)
             self.Weather:SetVisible(true)
+
+            self.SyncingVisibility = false
+        end)
+    else
+        task.spawn(function()
+            if not self.Destroyed then
+                self:Animate(true)
+            end
         end)
     end
 
@@ -995,8 +1011,8 @@ function Library:Animate(open)
 
             TweenInfo.new(
                 MAIN_ANIMATION_TIME,
-                Enum.EasingStyle.Quint,
-                Enum.EasingDirection.Out
+                MAIN_EASING_STYLE,
+                OPEN_EASING_DIRECTION
             ),
 
             {
@@ -1009,8 +1025,8 @@ function Library:Animate(open)
 
             TweenInfo.new(
                 MAIN_ANIMATION_TIME,
-                Enum.EasingStyle.Quint,
-                Enum.EasingDirection.Out
+                MAIN_EASING_STYLE,
+                OPEN_EASING_DIRECTION
             ),
 
             {
@@ -1042,8 +1058,8 @@ function Library:Animate(open)
 
             TweenInfo.new(
                 MAIN_ANIMATION_TIME,
-                Enum.EasingStyle.Quint,
-                Enum.EasingDirection.In
+                MAIN_EASING_STYLE,
+                CLOSE_EASING_DIRECTION
             ),
 
             {
@@ -1056,8 +1072,8 @@ function Library:Animate(open)
 
             TweenInfo.new(
                 MAIN_ANIMATION_TIME,
-                Enum.EasingStyle.Quint,
-                Enum.EasingDirection.In
+                MAIN_EASING_STYLE,
+                CLOSE_EASING_DIRECTION
             ),
 
             {
@@ -1067,6 +1083,22 @@ function Library:Animate(open)
 
         self.MainTween:Play()
         self.ScaleTween:Play()
+
+        for _, object in ipairs(self.FadeObjects) do
+            TweenService:Create(
+                object,
+
+                TweenInfo.new(
+                    MAIN_ANIMATION_TIME,
+                    Enum.EasingStyle.Quint,
+                    Enum.EasingDirection.In
+                ),
+
+                {
+                    TextTransparency = 1
+                }
+            ):Play()
+        end
     end
 
     self.MainTween.Completed:Wait()
@@ -1088,23 +1120,37 @@ function Library:SetVisible(value)
     value = value == true
 
     if self.Visible == value then
+        if self.Weather then
+            local weatherVisible = self.Weather.visible
+
+            if weatherVisible == nil then
+                weatherVisible = self.WeatherVisible
+            end
+
+            if weatherVisible ~= value then
+                self.SyncingVisibility = true
+                self.Weather:SetVisible(value)
+                self.SyncingVisibility = false
+            end
+        end
+
         return
     end
 
     self.Visible = value
 
-    if self.Weather and self.WeatherVisible then
+    if self.Weather then
         self.SyncingVisibility = true
 
-        task.spawn(function()
-            if self.Destroyed then
-                return
-            end
-
+        local success, err = pcall(function()
             self.Weather:SetVisible(value)
-
-            self.SyncingVisibility = false
         end)
+
+        self.SyncingVisibility = false
+
+        if not success then
+            warn("[APR] Weather visibility update failed: " .. tostring(err))
+        end
     end
 
     task.spawn(function()
@@ -1131,9 +1177,17 @@ function Library:SetKeybind(key)
 end
 
 function Library:ToggleWeather()
-    if self.Weather then
-        self.Weather:Toggle()
+    if not self.Weather then
+        return
     end
+
+    local current = self.Weather.visible
+
+    if current == nil then
+        current = self.WeatherVisible
+    end
+
+    self.Weather:SetVisible(not current)
 end
 
 function Library:SetWeatherKeybind(key)
