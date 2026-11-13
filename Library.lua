@@ -20,6 +20,9 @@ local MAIN_SCALE = 0.92
 local WEATHER_SCALE = 0.92
 local MAIN_GAP = 10
 
+local MAIN_ANIMATION_TIME = 0.55
+local LAYOUT_ANIMATION_TIME = 0.42
+
 local LIGHT_GRADIENT = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
     ColorSequenceKeypoint.new(0.34, Color3.fromRGB(66, 166, 224)),
@@ -77,7 +80,22 @@ local function getViewport()
     return Vector2.new(1600, 900)
 end
 
--- Both windows use UIScale, so calculate their actual visual dimensions.
+local function getCenteredMainPosition()
+    local viewport = getViewport()
+
+    local visualWidth = MAIN_WIDTH * MAIN_SCALE
+
+    local x = (viewport.X - visualWidth) / 2
+        - ((MAIN_WIDTH - visualWidth) / 2)
+
+    local y = (viewport.Y + MAIN_HEIGHT) / 2
+
+    return Vector2.new(
+        math.floor(x),
+        math.floor(y)
+    )
+end
+
 local function calculateLayout()
     local viewport = getViewport()
 
@@ -86,17 +104,26 @@ local function calculateLayout()
 
     local totalWidth = mainVisualWidth + MAIN_GAP + weatherVisualWidth
 
-    -- UIScale scales around the center of each frame.
-    local mainX = (viewport.X - totalWidth) / 2
+    local visualLeft = (viewport.X - totalWidth) / 2
+
+    local mainX = visualLeft
         - ((MAIN_WIDTH - mainVisualWidth) / 2)
 
-    -- The main frame uses AnchorPoint (0, 1).
-    -- This places its visual center at the screen's vertical center.
     local mainY = (viewport.Y + MAIN_HEIGHT) / 2
 
     return Vector2.new(
         math.floor(mainX),
         math.floor(mainY)
+    )
+end
+
+local function getWeatherOffset()
+    local mainRight = MAIN_WIDTH * (1 + MAIN_SCALE) / 2
+    local weatherLeft = WEATHER_WIDTH * (1 - WEATHER_SCALE) / 2
+
+    return Vector2.new(
+        mainRight + MAIN_GAP - weatherLeft,
+        0
     )
 end
 
@@ -198,6 +225,9 @@ function Library.new(config)
 
     self.Destroyed = false
     self.Visible = true
+    self.WeatherVisible = false
+    self.WeatherFollowing = false
+
     self.Keybind = config.Keybind or Enum.KeyCode.RightControl
 
     self.Modules = {}
@@ -212,20 +242,14 @@ function Library.new(config)
     self.MainTween = nil
     self.ScaleTween = nil
     self.ThemeTween = nil
+    self.LayoutTween = nil
 
     self.AnimationToken = 0
+    self.LayoutToken = 0
     self.Dragging = false
+    self.SyncingVisibility = false
 
-    -- The negative offset compensates for the two UIScale objects.
-    -- It gives a real visual gap of approximately MAIN_GAP pixels.
-    self.WeatherOffset = Vector2.new(
-        MAIN_WIDTH * MAIN_SCALE
-        - MAIN_WIDTH
-        + MAIN_GAP
-        + ((WEATHER_WIDTH - WEATHER_WIDTH * WEATHER_SCALE) / 2),
-        0
-    )
-
+    self.WeatherOffset = getWeatherOffset()
     self.MainPosition = calculateLayout()
 
     if config.InitialPosition then
@@ -352,8 +376,6 @@ function Library.new(config)
         Theme = self.MainTheme
     })
 
-    -- Dragging
-
     table.insert(self.Connections, self.Header.InputBegan:Connect(function(input)
         if self.Destroyed then
             return
@@ -395,8 +417,6 @@ function Library.new(config)
         end
     end))
 
-    -- Main keybind
-
     table.insert(self.Connections, UserInputService.InputBegan:Connect(function(input, processed)
         if processed or self.Destroyed then
             return
@@ -406,8 +426,6 @@ function Library.new(config)
             self:Toggle()
         end
     end))
-
-    -- Weather alignment
 
     table.insert(self.Connections, self.Main:GetPropertyChangedSignal("Position"):Connect(function()
         if not self.Destroyed then
@@ -421,23 +439,12 @@ function Library.new(config)
         end
     end))
 
-    -- Screen resizing
-
     local function update_screen_layout()
         if self.Destroyed or self.Dragging then
             return
         end
 
-        local position = calculateLayout()
-
-        self.MainPosition = position
-
-        self.Main.Position = UDim2.fromOffset(
-            position.X,
-            position.Y
-        )
-
-        self:AlignWeather()
+        self:UpdateMainLayout(false)
     end
 
     local camera = workspace.CurrentCamera
@@ -471,20 +478,81 @@ function Library.new(config)
 
     Environment.__APR_LIBRARY_INSTANCE = self
 
-    task.spawn(function()
-        if not self.Destroyed then
-            self:Animate(true)
-        end
-    end)
+    local weather = self:LoadWeather(config.Weather or {})
 
-    self:LoadWeather(config.Weather or {})
+    if not weather then
+        task.spawn(function()
+            if not self.Destroyed then
+                self:Animate(true)
+            end
+        end)
+    end
 
     return self
 end
 
--- =========================================
--- WEATHER POSITIONING
--- =========================================
+function Library:UpdateMainLayout(animate)
+    if self.Destroyed or not self.Main then
+        return
+    end
+
+    local target
+
+    if self.WeatherVisible then
+        target = calculateLayout()
+    else
+        target = getCenteredMainPosition()
+    end
+
+    self.MainPosition = target
+
+    local targetPosition = UDim2.fromOffset(
+        target.X,
+        target.Y
+    )
+
+    self.LayoutToken = self.LayoutToken + 1
+
+    local token = self.LayoutToken
+
+    if self.LayoutTween then
+        pcall(function()
+            self.LayoutTween:Cancel()
+        end)
+    end
+
+    if animate then
+        self.LayoutTween = TweenService:Create(
+            self.Main,
+
+            TweenInfo.new(
+                LAYOUT_ANIMATION_TIME,
+                Enum.EasingStyle.Quint,
+                Enum.EasingDirection.InOut
+            ),
+
+            {
+                Position = targetPosition
+            }
+        )
+
+        self.LayoutTween:Play()
+
+        task.spawn(function()
+            self.LayoutTween.Completed:Wait()
+
+            if self.Destroyed or token ~= self.LayoutToken then
+                return
+            end
+
+            self:AlignWeather()
+        end)
+    else
+        self.Main.Position = targetPosition
+    end
+
+    self:AlignWeather()
+end
 
 function Library:AlignWeather()
     if self.Destroyed or not self.Main or not self.Weather then
@@ -498,11 +566,10 @@ function Library:AlignWeather()
     end
 
     local mainPosition = self.Main.Position
-    local mainSize = self.Main.Size
 
     local targetPosition = UDim2.new(
-        mainPosition.X.Scale + mainSize.X.Scale,
-        mainPosition.X.Offset + mainSize.X.Offset + self.WeatherOffset.X,
+        mainPosition.X.Scale,
+        mainPosition.X.Offset + self.WeatherOffset.X,
 
         mainPosition.Y.Scale,
         mainPosition.Y.Offset + self.WeatherOffset.Y
@@ -512,23 +579,7 @@ function Library:AlignWeather()
         weather.main.AnchorPoint = Vector2.new(0, 1)
         weather.main.Position = targetPosition
     end)
-
-    -- FollowMain is enabled once. Avoid repeatedly reconnecting
-    -- the Weather module's position listeners.
-    if not self.WeatherFollowing then
-        self.WeatherFollowing = true
-
-        if type(weather.SetFollowMain) == "function" then
-            pcall(function()
-                weather:SetFollowMain(true, self.WeatherOffset)
-            end)
-        end
-    end
 end
-
--- =========================================
--- THEME SYSTEM
--- =========================================
 
 function Library:ApplyTheme(data)
     if self.Destroyed or not self.Main then
@@ -556,8 +607,6 @@ function Library:ApplyTheme(data)
         transparency = transparency or 0.48
 
     else
-        -- Sync begins with the nighttime blue-grey gradient.
-        -- The real weather preset replaces it once fetched.
         color = color or DEFAULT_GRADIENT
         transparency = transparency or 0.48
     end
@@ -599,10 +648,6 @@ function Library:ApplyTheme(data)
     end
 end
 
--- =========================================
--- WEATHER TEXT CONTRAST
--- =========================================
-
 function Library:UpdateWeatherTextContrast(weather)
     if not weather or not weather.main then
         return
@@ -616,8 +661,6 @@ function Library:UpdateWeatherTextContrast(weather)
 
     local brightness = getGradientBrightness(gradient.Color)
 
-    -- Light atmospheric colors need darker secondary text.
-    -- Dark atmospheric colors need lighter secondary text.
     local muted
     local dim
     local clockMuted
@@ -637,21 +680,32 @@ function Library:UpdateWeatherTextContrast(weather)
         clockSecondary = Color3.fromRGB(194, 202, 218)
     end
 
-    local oldMuted = weather.colors and weather.colors.muted
-    local oldDim = weather.colors and weather.colors.dim
+    local originalMuted = self.WeatherOriginalMuted
+    local originalDim = self.WeatherOriginalDim
+
+    if weather.colors then
+        originalMuted = originalMuted or weather.colors.muted
+        originalDim = originalDim or weather.colors.dim
+
+        self.WeatherOriginalMuted = originalMuted
+        self.WeatherOriginalDim = originalDim
+    end
 
     for _, object in ipairs(weather.main:GetDescendants()) do
         if object:IsA("TextLabel") then
-            if oldMuted and object.TextColor3 == oldMuted then
+            if originalMuted and object.TextColor3 == originalMuted then
                 object.TextColor3 = muted
-
-            elseif oldDim and object.TextColor3 == oldDim then
+            elseif originalDim and object.TextColor3 == originalDim then
                 object.TextColor3 = dim
             end
         end
     end
 
-    -- The clock uses RichText colors, so update those separately.
+    if weather.colors then
+        weather.colors.muted = muted
+        weather.colors.dim = dim
+    end
+
     if weather.clock_label then
         local currentText = weather.clock_label.Text
 
@@ -667,13 +721,6 @@ function Library:UpdateWeatherTextContrast(weather)
 
         weather.clock_label.Text = currentText
     end
-
-    -- Keep the original colors as references so subsequent updates
-    -- can identify muted and dim labels reliably.
-    if weather.colors then
-        weather.colors.muted = muted
-        weather.colors.dim = dim
-    end
 end
 
 function Library:BindWeatherContrast(weather)
@@ -681,7 +728,6 @@ function Library:BindWeatherContrast(weather)
         return
     end
 
-    -- Wrap lighting updates so contrast follows every new preset.
     if type(weather.update_lighting) == "function" then
         local original = weather.update_lighting
 
@@ -696,8 +742,6 @@ function Library:BindWeatherContrast(weather)
         end
     end
 
-    -- The clock refreshes frequently, so reapply the RichText colors
-    -- after the Weather module writes its normal clock string.
     if type(weather.update_clock) == "function" then
         local original = weather.update_clock
 
@@ -715,9 +759,29 @@ function Library:BindWeatherContrast(weather)
     self:UpdateWeatherTextContrast(weather)
 end
 
--- =========================================
--- WEATHER INITIALIZATION
--- =========================================
+function Library:BindWeatherVisibility(weather)
+    if not weather or type(weather.SetVisible) ~= "function" then
+        return
+    end
+
+    local originalSetVisible = weather.SetVisible
+
+    weather.SetVisible = function(module, value, ...)
+        value = value == true
+
+        local previous = self.WeatherVisible
+
+        local result = originalSetVisible(module, value, ...)
+
+        self.WeatherVisible = value
+
+        if not self.Destroyed and previous ~= value and not self.SyncingVisibility then
+            self:UpdateMainLayout(true)
+        end
+
+        return result
+    end
+end
 
 function Library:LoadWeather(config)
     if self.Destroyed or config.Enabled == false then
@@ -726,7 +790,6 @@ function Library:LoadWeather(config)
 
     local moduleUrl = config.ModuleURL or WEATHER_URL
     local weather
-    local receivedRealTheme = false
 
     local success, result = xpcall(function()
         local source = game:HttpGet(moduleUrl)
@@ -763,19 +826,16 @@ function Library:LoadWeather(config)
 
             MainWindow = self.Main,
 
-            FollowMain = true,
+            FollowMain = false,
             Offset = self.WeatherOffset,
 
             InitialPosition = UDim2.fromOffset(
-                self.Main.Position.X.Offset
-                    + MAIN_WIDTH
-                    + self.WeatherOffset.X,
-
+                self.Main.Position.X.Offset + self.WeatherOffset.X,
                 self.Main.Position.Y.Offset
             ),
 
             Enabled = true,
-            Visible = config.Visible ~= false,
+            Visible = false,
 
             Keybind = config.Keybind or Enum.KeyCode.G,
 
@@ -802,17 +862,9 @@ function Library:LoadWeather(config)
             WindUnit = config.WindUnit or "mph",
 
             OnMainThemeUpdate = function(data)
-                if self.Destroyed then
-                    return
+                if not self.Destroyed then
+                    self:ApplyTheme(data)
                 end
-
-                -- The Weather module sends a temporary DAY preset
-                -- before fetching actual weather data. Ignore it.
-                if not receivedRealTheme then
-                    return
-                end
-
-                self:ApplyTheme(data)
             end
         })
 
@@ -829,9 +881,6 @@ function Library:LoadWeather(config)
             error("Weather start returned false")
         end
 
-        -- The initial Weather UI is created with a daytime gradient.
-        -- Replace it immediately with the Sync nighttime gradient.
-        -- Its real lighting update will take over after weather loads.
         if weather.atmos_gradient and weather.atmosphere then
             local weatherTheme = theme.Weather or "Sync"
 
@@ -849,15 +898,9 @@ function Library:LoadWeather(config)
             end
         end
 
-        -- The initial callback has now been ignored. Subsequent
-        -- updates are actual weather/time-based theme changes.
-        receivedRealTheme = true
-
-        -- Connect adaptive text contrast to the weather updater.
         self:BindWeatherContrast(weather)
 
         return weather
-
     end, function(err)
         return debug.traceback(tostring(err), 2)
     end)
@@ -889,14 +932,32 @@ function Library:LoadWeather(config)
     self.Weather = result
     self.Modules.Weather = result
 
-    self:AlignWeather()
+    self:BindWeatherVisibility(result)
+
+    self.WeatherVisible = config.Visible ~= false
+
+    self:UpdateMainLayout(false)
+
+    task.spawn(function()
+        if self.Destroyed then
+            return
+        end
+
+        self:Animate(true)
+    end)
+
+    if self.WeatherVisible then
+        task.spawn(function()
+            if self.Destroyed or not self.Weather then
+                return
+            end
+
+            self.Weather:SetVisible(true)
+        end)
+    end
 
     return result
 end
-
--- =========================================
--- OPEN / CLOSE ANIMATIONS
--- =========================================
 
 function Library:Animate(open)
     if self.Destroyed or not self.Main then
@@ -933,7 +994,7 @@ function Library:Animate(open)
             self.Main,
 
             TweenInfo.new(
-                0.55,
+                MAIN_ANIMATION_TIME,
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.Out
             ),
@@ -947,7 +1008,7 @@ function Library:Animate(open)
             self.MainScale,
 
             TweenInfo.new(
-                0.55,
+                MAIN_ANIMATION_TIME,
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.Out
             ),
@@ -975,13 +1036,12 @@ function Library:Animate(open)
                 }
             ):Play()
         end
-
     else
         self.MainTween = TweenService:Create(
             self.Main,
 
             TweenInfo.new(
-                0.7,
+                MAIN_ANIMATION_TIME,
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.In
             ),
@@ -995,7 +1055,7 @@ function Library:Animate(open)
             self.MainScale,
 
             TweenInfo.new(
-                0.7,
+                MAIN_ANIMATION_TIME,
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.In
             ),
@@ -1020,10 +1080,6 @@ function Library:Animate(open)
     end
 end
 
--- =========================================
--- VISIBILITY
--- =========================================
-
 function Library:SetVisible(value)
     if self.Destroyed then
         return
@@ -1037,12 +1093,25 @@ function Library:SetVisible(value)
 
     self.Visible = value
 
-    task.spawn(function()
-        self:Animate(value)
-    end)
+    if self.Weather and self.WeatherVisible then
+        self.SyncingVisibility = true
 
-    -- Main visibility is intentionally independent from Weather.
-    -- Toggling the main window must never reopen or close Weather.
+        task.spawn(function()
+            if self.Destroyed then
+                return
+            end
+
+            self.Weather:SetVisible(value)
+
+            self.SyncingVisibility = false
+        end)
+    end
+
+    task.spawn(function()
+        if not self.Destroyed then
+            self:Animate(value)
+        end
+    end)
 end
 
 function Library:Toggle()
@@ -1060,10 +1129,6 @@ end
 function Library:SetKeybind(key)
     self.Keybind = key
 end
-
--- =========================================
--- WEATHER CONTROLS
--- =========================================
 
 function Library:ToggleWeather()
     if self.Weather then
@@ -1114,27 +1179,20 @@ function Library:SetWeatherLocationDisplay(display)
 end
 
 function Library:SetWeatherFollowMain(enabled, offset)
-    self.WeatherOffset = offset or self.WeatherOffset
+    self.WeatherOffset = offset or getWeatherOffset()
 
     if self.Weather then
         if type(self.Weather.SetFollowMain) == "function" then
-            self.Weather:SetFollowMain(
-                enabled == true,
-                self.WeatherOffset
-            )
+            self.Weather:SetFollowMain(false, self.WeatherOffset)
         end
 
-        self.WeatherFollowing = enabled == true
+        self.WeatherFollowing = false
 
         if enabled then
             self:AlignWeather()
         end
     end
 end
-
--- =========================================
--- DESTROY
--- =========================================
 
 function Library:Destroy()
     if self.Destroyed then
@@ -1144,6 +1202,7 @@ function Library:Destroy()
     self.Destroyed = true
 
     self.AnimationToken = self.AnimationToken + 1
+    self.LayoutToken = self.LayoutToken + 1
     self.Dragging = false
 
     if self.MainTween then
@@ -1161,6 +1220,12 @@ function Library:Destroy()
     if self.ThemeTween then
         pcall(function()
             self.ThemeTween:Cancel()
+        end)
+    end
+
+    if self.LayoutTween then
+        pcall(function()
+            self.LayoutTween:Cancel()
         end)
     end
 
