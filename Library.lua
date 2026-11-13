@@ -5,7 +5,6 @@ Library.__index = Library
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -15,8 +14,11 @@ local WEATHER_URL = "https://raw.githubusercontent.com/misyn/apr/refs/heads/main
 local MAIN_WIDTH = 600
 local MAIN_HEIGHT = 550
 local WEATHER_WIDTH = 320
-local MAIN_GAP = 14
-local BOTTOM_PADDING = 24
+local WEATHER_HEIGHT = 550
+
+local MAIN_SCALE = 0.92
+local WEATHER_SCALE = 0.92
+local MAIN_GAP = 10
 
 local LIGHT_GRADIENT = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 119, 198)),
@@ -75,22 +77,27 @@ local function getViewport()
     return Vector2.new(1600, 900)
 end
 
+-- Both windows use UIScale, so calculate their actual visual dimensions.
 local function calculateLayout()
     local viewport = getViewport()
 
-    local totalWidth = MAIN_WIDTH + MAIN_GAP + WEATHER_WIDTH
+    local mainVisualWidth = MAIN_WIDTH * MAIN_SCALE
+    local weatherVisualWidth = WEATHER_WIDTH * WEATHER_SCALE
 
-    local x = math.max(
-        12,
-        math.floor((viewport.X - totalWidth) / 2)
+    local totalWidth = mainVisualWidth + MAIN_GAP + weatherVisualWidth
+
+    -- UIScale scales around the center of each frame.
+    local mainX = (viewport.X - totalWidth) / 2
+        - ((MAIN_WIDTH - mainVisualWidth) / 2)
+
+    -- The main frame uses AnchorPoint (0, 1).
+    -- This places its visual center at the screen's vertical center.
+    local mainY = (viewport.Y + MAIN_HEIGHT) / 2
+
+    return Vector2.new(
+        math.floor(mainX),
+        math.floor(mainY)
     )
-
-    local y = math.max(
-        MAIN_HEIGHT + 12,
-        viewport.Y - BOTTOM_PADDING
-    )
-
-    return Vector2.new(x, y)
 end
 
 local function create(class, properties, parent)
@@ -124,6 +131,42 @@ local function disconnect(connection)
             connection:Disconnect()
         end)
     end
+end
+
+local function colorToHex(color)
+    return string.format(
+        "#%02X%02X%02X",
+        math.floor(color.R * 255 + 0.5),
+        math.floor(color.G * 255 + 0.5),
+        math.floor(color.B * 255 + 0.5)
+    )
+end
+
+local function getGradientBrightness(sequence)
+    if typeof(sequence) ~= "ColorSequence" then
+        return 0.25
+    end
+
+    local total = 0
+    local count = 0
+
+    for _, point in ipairs(sequence.Keypoints) do
+        local color = point.Value
+
+        local brightness =
+            color.R * 0.299
+            + color.G * 0.587
+            + color.B * 0.114
+
+        total = total + brightness
+        count = count + 1
+    end
+
+    if count == 0 then
+        return 0.25
+    end
+
+    return total / count
 end
 
 function Library.new(config)
@@ -173,7 +216,16 @@ function Library.new(config)
     self.AnimationToken = 0
     self.Dragging = false
 
-    self.WeatherOffset = Vector2.new(MAIN_GAP, 0)
+    -- The negative offset compensates for the two UIScale objects.
+    -- It gives a real visual gap of approximately MAIN_GAP pixels.
+    self.WeatherOffset = Vector2.new(
+        MAIN_WIDTH * MAIN_SCALE
+        - MAIN_WIDTH
+        + MAIN_GAP
+        + ((WEATHER_WIDTH - WEATHER_WIDTH * WEATHER_SCALE) / 2),
+        0
+    )
+
     self.MainPosition = calculateLayout()
 
     if config.InitialPosition then
@@ -209,7 +261,7 @@ function Library.new(config)
     }, self.Gui)
 
     self.MainScale = create("UIScale", {
-        Scale = 0.92
+        Scale = MAIN_SCALE
     }, self.Main)
 
     self.Atmosphere = create("Frame", {
@@ -461,10 +513,16 @@ function Library:AlignWeather()
         weather.main.Position = targetPosition
     end)
 
-    if type(weather.SetFollowMain) == "function" then
-        pcall(function()
-            weather:SetFollowMain(true, self.WeatherOffset)
-        end)
+    -- FollowMain is enabled once. Avoid repeatedly reconnecting
+    -- the Weather module's position listeners.
+    if not self.WeatherFollowing then
+        self.WeatherFollowing = true
+
+        if type(weather.SetFollowMain) == "function" then
+            pcall(function()
+                weather:SetFollowMain(true, self.WeatherOffset)
+            end)
+        end
     end
 end
 
@@ -485,49 +543,32 @@ function Library:ApplyTheme(data)
     local transparency = data.Transparency
     local rotation = data.Rotation or 45
 
-    local backgroundColor = ATMOSPHERE_BASE
-
     if theme == "Light" then
-
-        -- Matches Weather:SetWeatherTheme("Light")
-
         color = LIGHT_GRADIENT
         transparency = 0.22
 
     elseif theme == "Dark" then
-
-        -- Matches Weather:SetWeatherTheme("Dark")
-
         color = DARK_GRADIENT
         transparency = 0.28
 
     elseif theme == "System" then
-
-        -- System follows the supplied weather atmosphere.
-
         color = color or DEFAULT_GRADIENT
         transparency = transparency or 0.48
 
     else
-
-        -- Sync uses the actual Weather module preset.
-        -- This includes nighttime blue-grey coloring.
-
+        -- Sync begins with the nighttime blue-grey gradient.
+        -- The real weather preset replaces it once fetched.
         color = color or DEFAULT_GRADIENT
         transparency = transparency or 0.48
     end
 
-    -- Keep the same atmospheric base color as Weather.lua.
-
-    self.Atmosphere.BackgroundColor3 = backgroundColor
+    self.Atmosphere.BackgroundColor3 = ATMOSPHERE_BASE
 
     if color then
         self.AtmosphereGradient.Color = color
     end
 
     self.AtmosphereGradient.Rotation = rotation
-
-    -- Cancel previous theme transitions.
 
     if self.ThemeTween then
         pcall(function()
@@ -559,6 +600,122 @@ function Library:ApplyTheme(data)
 end
 
 -- =========================================
+-- WEATHER TEXT CONTRAST
+-- =========================================
+
+function Library:UpdateWeatherTextContrast(weather)
+    if not weather or not weather.main then
+        return
+    end
+
+    local gradient = weather.atmos_gradient
+
+    if not gradient then
+        return
+    end
+
+    local brightness = getGradientBrightness(gradient.Color)
+
+    -- Light atmospheric colors need darker secondary text.
+    -- Dark atmospheric colors need lighter secondary text.
+    local muted
+    local dim
+    local clockMuted
+    local clockSecondary
+
+    if brightness >= 0.48 then
+        muted = Color3.fromRGB(75, 83, 99)
+        dim = Color3.fromRGB(99, 108, 124)
+
+        clockMuted = Color3.fromRGB(85, 94, 111)
+        clockSecondary = Color3.fromRGB(105, 114, 130)
+    else
+        muted = Color3.fromRGB(190, 197, 211)
+        dim = Color3.fromRGB(151, 161, 181)
+
+        clockMuted = Color3.fromRGB(169, 179, 199)
+        clockSecondary = Color3.fromRGB(194, 202, 218)
+    end
+
+    local oldMuted = weather.colors and weather.colors.muted
+    local oldDim = weather.colors and weather.colors.dim
+
+    for _, object in ipairs(weather.main:GetDescendants()) do
+        if object:IsA("TextLabel") then
+            if oldMuted and object.TextColor3 == oldMuted then
+                object.TextColor3 = muted
+
+            elseif oldDim and object.TextColor3 == oldDim then
+                object.TextColor3 = dim
+            end
+        end
+    end
+
+    -- The clock uses RichText colors, so update those separately.
+    if weather.clock_label then
+        local currentText = weather.clock_label.Text
+
+        currentText = currentText:gsub(
+            'color="#92949B"',
+            'color="' .. colorToHex(clockMuted) .. '"'
+        )
+
+        currentText = currentText:gsub(
+            'color="#B8BAC2"',
+            'color="' .. colorToHex(clockSecondary) .. '"'
+        )
+
+        weather.clock_label.Text = currentText
+    end
+
+    -- Keep the original colors as references so subsequent updates
+    -- can identify muted and dim labels reliably.
+    if weather.colors then
+        weather.colors.muted = muted
+        weather.colors.dim = dim
+    end
+end
+
+function Library:BindWeatherContrast(weather)
+    if not weather then
+        return
+    end
+
+    -- Wrap lighting updates so contrast follows every new preset.
+    if type(weather.update_lighting) == "function" then
+        local original = weather.update_lighting
+
+        weather.update_lighting = function(module, ...)
+            local results = {original(module, ...)}
+
+            if not self.Destroyed then
+                self:UpdateWeatherTextContrast(module)
+            end
+
+            return table.unpack(results)
+        end
+    end
+
+    -- The clock refreshes frequently, so reapply the RichText colors
+    -- after the Weather module writes its normal clock string.
+    if type(weather.update_clock) == "function" then
+        local original = weather.update_clock
+
+        weather.update_clock = function(module, ...)
+            local results = {original(module, ...)}
+
+            if not self.Destroyed then
+                self:UpdateWeatherTextContrast(module)
+            end
+
+            return table.unpack(results)
+        end
+    end
+
+    self:UpdateWeatherTextContrast(weather)
+end
+
+-- =========================================
 -- WEATHER INITIALIZATION
 -- =========================================
 
@@ -569,9 +726,9 @@ function Library:LoadWeather(config)
 
     local moduleUrl = config.ModuleURL or WEATHER_URL
     local weather
+    local receivedRealTheme = false
 
     local success, result = xpcall(function()
-
         local source = game:HttpGet(moduleUrl)
 
         assert(
@@ -601,13 +758,7 @@ function Library:LoadWeather(config)
         local location = config.Location or {}
         local theme = config.Theme or {}
 
-        local weatherInitialPosition = UDim2.fromOffset(
-            self.Main.Position.X.Offset + MAIN_WIDTH + self.WeatherOffset.X,
-            self.Main.Position.Y.Offset
-        )
-
         weather = weatherModule.new({
-
             Parent = getParent(),
 
             MainWindow = self.Main,
@@ -615,7 +766,13 @@ function Library:LoadWeather(config)
             FollowMain = true,
             Offset = self.WeatherOffset,
 
-            InitialPosition = weatherInitialPosition,
+            InitialPosition = UDim2.fromOffset(
+                self.Main.Position.X.Offset
+                    + MAIN_WIDTH
+                    + self.WeatherOffset.X,
+
+                self.Main.Position.Y.Offset
+            ),
 
             Enabled = true,
             Visible = config.Visible ~= false,
@@ -645,9 +802,17 @@ function Library:LoadWeather(config)
             WindUnit = config.WindUnit or "mph",
 
             OnMainThemeUpdate = function(data)
-                if not self.Destroyed then
-                    self:ApplyTheme(data)
+                if self.Destroyed then
+                    return
                 end
+
+                -- The Weather module sends a temporary DAY preset
+                -- before fetching actual weather data. Ignore it.
+                if not receivedRealTheme then
+                    return
+                end
+
+                self:ApplyTheme(data)
             end
         })
 
@@ -664,6 +829,33 @@ function Library:LoadWeather(config)
             error("Weather start returned false")
         end
 
+        -- The initial Weather UI is created with a daytime gradient.
+        -- Replace it immediately with the Sync nighttime gradient.
+        -- Its real lighting update will take over after weather loads.
+        if weather.atmos_gradient and weather.atmosphere then
+            local weatherTheme = theme.Weather or "Sync"
+
+            if weatherTheme == "Light" then
+                weather.atmos_gradient.Color = LIGHT_GRADIENT
+                weather.atmosphere.BackgroundTransparency = 0.22
+
+            elseif weatherTheme == "Dark" then
+                weather.atmos_gradient.Color = DARK_GRADIENT
+                weather.atmosphere.BackgroundTransparency = 0.28
+
+            else
+                weather.atmos_gradient.Color = DEFAULT_GRADIENT
+                weather.atmosphere.BackgroundTransparency = 0.48
+            end
+        end
+
+        -- The initial callback has now been ignored. Subsequent
+        -- updates are actual weather/time-based theme changes.
+        receivedRealTheme = true
+
+        -- Connect adaptive text contrast to the weather updater.
+        self:BindWeatherContrast(weather)
+
         return weather
 
     end, function(err)
@@ -671,7 +863,6 @@ function Library:LoadWeather(config)
     end)
 
     if not success then
-
         if weather then
             pcall(function()
                 if type(weather.Destroy) == "function" then
@@ -686,7 +877,6 @@ function Library:LoadWeather(config)
     end
 
     if self.Destroyed then
-
         pcall(function()
             if type(result.Destroy) == "function" then
                 result:Destroy()
@@ -730,11 +920,10 @@ function Library:Animate(open)
     end
 
     if open then
-
         self.Main.Visible = true
 
         self.Main.Size = UDim2.fromOffset(MAIN_WIDTH, 0)
-        self.MainScale.Scale = 0.92
+        self.MainScale.Scale = MAIN_SCALE
 
         for _, object in ipairs(self.FadeObjects) do
             object.TextTransparency = 1
@@ -764,7 +953,7 @@ function Library:Animate(open)
             ),
 
             {
-                Scale = 0.92
+                Scale = MAIN_SCALE
             }
         )
 
@@ -772,7 +961,6 @@ function Library:Animate(open)
         self.ScaleTween:Play()
 
         for _, object in ipairs(self.FadeObjects) do
-
             TweenService:Create(
                 object,
 
@@ -786,11 +974,9 @@ function Library:Animate(open)
                     TextTransparency = 0
                 }
             ):Play()
-
         end
 
     else
-
         self.MainTween = TweenService:Create(
             self.Main,
 
@@ -815,13 +1001,12 @@ function Library:Animate(open)
             ),
 
             {
-                Scale = 0.92
+                Scale = MAIN_SCALE
             }
         )
 
         self.MainTween:Play()
         self.ScaleTween:Play()
-
     end
 
     self.MainTween.Completed:Wait()
@@ -856,13 +1041,8 @@ function Library:SetVisible(value)
         self:Animate(value)
     end)
 
-    if self.Weather then
-        task.spawn(function()
-            if not self.Destroyed and self.Weather then
-                self.Weather:SetVisible(value)
-            end
-        end)
-    end
+    -- Main visibility is intentionally independent from Weather.
+    -- Toggling the main window must never reopen or close Weather.
 end
 
 function Library:Toggle()
@@ -934,16 +1114,17 @@ function Library:SetWeatherLocationDisplay(display)
 end
 
 function Library:SetWeatherFollowMain(enabled, offset)
-    self.WeatherOffset = offset or Vector2.new(MAIN_GAP, 0)
+    self.WeatherOffset = offset or self.WeatherOffset
 
     if self.Weather then
-
         if type(self.Weather.SetFollowMain) == "function" then
             self.Weather:SetFollowMain(
                 enabled == true,
                 self.WeatherOffset
             )
         end
+
+        self.WeatherFollowing = enabled == true
 
         if enabled then
             self:AlignWeather()
@@ -990,7 +1171,6 @@ function Library:Destroy()
     table.clear(self.Connections)
 
     if self.Weather then
-
         pcall(function()
             self.Weather:Destroy()
         end)
