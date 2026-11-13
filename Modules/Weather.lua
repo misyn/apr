@@ -34,7 +34,7 @@ function weatherapi.new(config)
 
     self.main_window = config.MainWindow
     self.follow_main = config.FollowMain == true
-    self.offset = config.Offset or Vector2.new(340, 0)
+    self.offset = config.Offset or Vector2.new(262, 0)
 
     self.location = config.Location or {}
     self.location_display = self.location.Display or "City, State"
@@ -1253,8 +1253,8 @@ function weatherapi:create_ui()
     self.main = Instance.new("Frame")
     self.main.Name = "Dashboard"
     self.main.Size = UDim2.fromOffset(320, 550)
-    self.main.AnchorPoint = Vector2.new(1, 1)
-    self.main.Position = self.config.InitialPosition or UDim2.new(1, -75, 0.5, 275)
+    self.main.AnchorPoint = Vector2.new(0, 1)
+    self.main.Position = self.config.InitialPosition or UDim2.fromOffset(1292, 625)
     self.main.BackgroundColor3 = self.colors.bg
     self.main.BackgroundTransparency = 0.05
     self.main.BorderSizePixel = 0
@@ -1587,28 +1587,28 @@ function weatherapi:set_visual_transparency(transparency, duration, direction)
     end
 end
 
-
 function weatherapi:get_target_position()
     if self.follow_main and self.main_window and self.main_window.Parent then
-        local main_position = self.main_window.AbsolutePosition
-        local main_size = self.main_window.AbsoluteSize
+        local main_position = self.main_window.Position
+        local main_size = self.main_window.Size
 
-        return UDim2.fromOffset(
-            main_position.X + main_size.X + self.offset.X + 320,
-            main_position.Y + 550
+        return UDim2.new(
+            main_position.X.Scale + main_size.X.Scale,
+            main_position.X.Offset + main_size.X.Offset + self.offset.X,
+            main_position.Y.Scale,
+            main_position.Y.Offset + self.offset.Y
         )
     end
 
-    return UDim2.new(1, -75, 0.5, 275)
+    return self.config.InitialPosition or UDim2.fromOffset(1292, 625)
 end
-
 
 function weatherapi:update_follow_position()
     if not self.follow_main or not self.main_window or not self.main_window.Parent then
         return
     end
 
-    if self.dragging then
+    if self.dragging or not self.main then
         return
     end
 
@@ -1628,7 +1628,7 @@ function weatherapi:bind_following()
         self:update_follow_position()
     end))
 
-    table.insert(self.connections, self.main_window:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
+    table.insert(self.connections, self.main_window:GetPropertyChangedSignal("AnchorPoint"):Connect(function()
         self:update_follow_position()
     end))
 
@@ -1798,6 +1798,10 @@ function weatherapi:bind_toggle()
 end
 
 function weatherapi:bind_dragging()
+    if self.follow_main then
+        return
+    end
+
     table.insert(self.connections, self.main.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
@@ -1896,7 +1900,6 @@ function weatherapi:bind_updates()
         end
     end)
 end
-
 
 function weatherapi:start()
     if self.started or self.destroyed then
@@ -1997,7 +2000,6 @@ function weatherapi:start()
 
     return self
 end
-
 
 function weatherapi:destroy()
     if self.destroyed then
