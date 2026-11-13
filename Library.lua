@@ -49,43 +49,43 @@ local DEFAULT_GRADIENT = ColorSequence.new({
 local ATMOSPHERE_BASE = Color3.fromRGB(35, 119, 198)
 
 local THEME_PROFILES = {
-    ["Discord Blurple"] = {
+    Discord = {
         Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(88, 101, 242)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(71, 82, 196)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 39, 92))
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(114, 137, 218)),
+            ColorSequenceKeypoint.new(0.52, Color3.fromRGB(88, 101, 242)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(48, 55, 112))
         }),
-        Base = Color3.fromRGB(32, 34, 43),
-        Transparency = 0.18,
-        Text = Color3.fromRGB(245, 246, 255),
-        Muted = Color3.fromRGB(190, 194, 220)
-    },
-    ["Opera GX"] = {
-        Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 30, 86)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(125, 15, 55)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 12, 25))
-        }),
-        Base = Color3.fromRGB(22, 15, 23),
+        Base = Color3.fromRGB(27, 29, 36),
         Transparency = 0.16,
-        Text = Color3.fromRGB(255, 242, 247),
-        Muted = Color3.fromRGB(210, 170, 185)
+        Text = Color3.fromRGB(245, 246, 255),
+        Muted = Color3.fromRGB(190, 195, 218)
     },
-    ["Apple Light Mode"] = {
+    Opera = {
         Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 235, 255)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(245, 247, 252)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 225, 195))
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 75, 112)),
+            ColorSequenceKeypoint.new(0.48, Color3.fromRGB(183, 35, 86)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(73, 24, 55))
         }),
-        Base = Color3.fromRGB(239, 242, 248),
-        Transparency = 0.08,
-        Text = Color3.fromRGB(35, 39, 48),
-        Muted = Color3.fromRGB(91, 99, 115)
+        Base = Color3.fromRGB(25, 22, 29),
+        Transparency = 0.14,
+        Text = Color3.fromRGB(250, 245, 249),
+        Muted = Color3.fromRGB(205, 181, 197)
     },
-    ["Apple Dark Mode"] = {
+    Daylight = {
         Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(75, 83, 101)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(38, 42, 52)),
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(115, 177, 226)),
+            ColorSequenceKeypoint.new(0.48, Color3.fromRGB(180, 211, 232)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(244, 202, 158))
+        }),
+        Base = Color3.fromRGB(232, 237, 244),
+        Transparency = 0.10,
+        Text = Color3.fromRGB(34, 42, 55),
+        Muted = Color3.fromRGB(91, 103, 121)
+    },
+    Midnight = {
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(72, 82, 104)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(38, 43, 55)),
             ColorSequenceKeypoint.new(1, Color3.fromRGB(17, 19, 25))
         }),
         Base = Color3.fromRGB(20, 22, 28),
@@ -93,45 +93,57 @@ local THEME_PROFILES = {
         Text = Color3.fromRGB(245, 246, 250),
         Muted = Color3.fromRGB(164, 170, 184)
     },
-    Nighttime = {
+    Dusk = {
         Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(17, 29, 58)),
-            ColorSequenceKeypoint.new(0.34, Color3.fromRGB(27, 38, 76)),
-            ColorSequenceKeypoint.new(0.68, Color3.fromRGB(57, 49, 91)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(112, 65, 91))
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 53, 91)),
+            ColorSequenceKeypoint.new(0.38, Color3.fromRGB(76, 75, 132)),
+            ColorSequenceKeypoint.new(0.72, Color3.fromRGB(157, 91, 116)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(225, 145, 111))
         }),
-        Base = Color3.fromRGB(17, 22, 39),
-        Transparency = 0.2,
-        Text = Color3.fromRGB(239, 241, 250),
-        Muted = Color3.fromRGB(177, 185, 207)
+        Base = Color3.fromRGB(25, 28, 44),
+        Transparency = 0.18,
+        Text = Color3.fromRGB(246, 241, 247),
+        Muted = Color3.fromRGB(190, 180, 204)
     }
 }
 
+local THEME_ALIASES = {
+    ["Discord Blurple"] = "Discord",
+    ["Opera GX"] = "Opera",
+    ["Apple Light Mode"] = "Daylight",
+    ["Apple Dark Mode"] = "Midnight",
+    Nighttime = "Dusk"
+}
+
 local function resolveTheme(theme)
+    if THEME_ALIASES[theme] then
+        return THEME_ALIASES[theme]
+    end
+
     if theme ~= "Auto" then
         return theme
     end
 
     local hour = tonumber(os.date("%H")) or 12
-
-    if hour >= 7 and hour < 19 then
-        return "Apple Light Mode"
-    end
-
-    return "Nighttime"
+    return hour >= 7 and hour < 19 and "Daylight" or "Dusk"
 end
 
 local VALID_THEMES = {
-    ["Discord Blurple"] = true,
-    ["Opera GX"] = true,
-    ["Apple Light Mode"] = true,
-    ["Apple Dark Mode"] = true,
-    Nighttime = true,
+    Discord = true,
+    Opera = true,
+    Daylight = true,
+    Midnight = true,
+    Dusk = true,
     Auto = true,
     Sync = true,
     System = true,
     Light = true,
-    Dark = true
+    Dark = true,
+    ["Discord Blurple"] = true,
+    ["Opera GX"] = true,
+    ["Apple Light Mode"] = true,
+    ["Apple Dark Mode"] = true,
+    Nighttime = true
 }
 
 local function getEnvironment()
@@ -300,6 +312,9 @@ function Library.new(config)
 
     self.Modules = {}
     self.Connections = {}
+
+    self.MainTransparency = config.Weather and (config.Weather.MainTransparency or config.Weather.Transparency) or nil
+    self.WeatherTransparency = config.Weather and config.Weather.Transparency or nil
 
     self.MainTheme = (
         config.Weather
@@ -687,6 +702,9 @@ function Library:ApplyTheme(data)
 
     local color = data.Color
     local transparency = data.Transparency
+    if type(self.MainTransparency) == "number" then
+        transparency = self.MainTransparency
+    end
     local rotation = data.Rotation or 45
 
     if profile then
@@ -770,6 +788,10 @@ function Library:UpdateWeatherTextContrast(weather)
     local gradient = weather.atmos_gradient
 
     if not gradient then
+        return
+    end
+
+    if weather.theme_text_colors then
         return
     end
 
@@ -980,6 +1002,7 @@ function Library:LoadWeather(config)
             Enabled = true,
             Visible = false,
             Effects = config.Effects ~= false,
+            Transparency = config.Transparency,
 
             Keybind = config.Keybind or Enum.KeyCode.G,
 
@@ -1356,6 +1379,48 @@ function Library:SetWeatherEffectsEnabled(enabled)
     end
 
     return false
+end
+
+function Library:SetTransparency(value)
+    value = tonumber(value)
+    if not value then
+        return false
+    end
+
+    value = math.clamp(value, 0, 1)
+    self.MainTransparency = value
+    self.WeatherTransparency = value
+    self:ApplyTheme({Theme = self.MainTheme})
+
+    if self.Weather and type(self.Weather.SetTransparency) == "function" then
+        self.Weather:SetTransparency(value)
+    end
+
+    return true
+end
+
+function Library:SetMainTransparency(value)
+    value = tonumber(value)
+    if not value then
+        return false
+    end
+
+    self.MainTransparency = math.clamp(value, 0, 1)
+    self:ApplyTheme({Theme = self.MainTheme})
+    return true
+end
+
+function Library:SetWeatherTransparency(value)
+    value = tonumber(value)
+    if not value then
+        return false
+    end
+
+    self.WeatherTransparency = math.clamp(value, 0, 1)
+    if self.Weather and type(self.Weather.SetTransparency) == "function" then
+        return self.Weather:SetTransparency(self.WeatherTransparency)
+    end
+    return true
 end
 
 function Library:SetMainTheme(theme)
