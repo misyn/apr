@@ -11,6 +11,15 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 
 local WEATHER_URL = "https://raw.githubusercontent.com/misyn/apr/refs/heads/main/Modules/Weather.lua"
 
+local MAIN_WIDTH = 600
+local MAIN_HEIGHT = 550
+local MAIN_X = 430
+local MAIN_Y = 625
+
+local WEATHER_X = 1292
+local WEATHER_Y = 625
+local WEATHER_OFFSET_X = WEATHER_X - MAIN_X - MAIN_WIDTH
+
 local function getEnvironment()
     if typeof(getgenv) == "function" then
         local success, result = pcall(getgenv)
@@ -66,16 +75,6 @@ local function disconnect(connection)
     end
 end
 
-local function getViewport()
-    local camera = workspace.CurrentCamera
-
-    if camera then
-        return camera.ViewportSize
-    end
-
-    return Vector2.new(1280, 720)
-end
-
 function Library.new(config)
     config = config or {}
 
@@ -120,16 +119,7 @@ function Library.new(config)
     self.AnimationToken = 0
     self.Dragging = false
 
-    local viewport = getViewport()
-    local panelWidth = 320
-    local panelHeight = 550
-    local gap = 12
-    local totalWidth = panelWidth * 2 + gap
-
-    local left = math.max(12, math.floor((viewport.X - totalWidth) / 2))
-    local bottom = math.floor((viewport.Y + panelHeight) / 2)
-
-    self.MainPosition = Vector2.new(left, bottom)
+    self.MainPosition = Vector2.new(MAIN_X, MAIN_Y)
 
     self.Gui = create("ScreenGui", {
         Name = "CustomUILibrary",
@@ -141,8 +131,8 @@ function Library.new(config)
     self.Main = create("Frame", {
         Name = "Main",
         AnchorPoint = Vector2.new(0, 1),
-        Position = UDim2.fromOffset(left, bottom),
-        Size = UDim2.fromOffset(panelWidth, 0),
+        Position = UDim2.fromOffset(MAIN_X, MAIN_Y),
+        Size = UDim2.fromOffset(MAIN_WIDTH, 0),
         BackgroundColor3 = Color3.fromRGB(29, 30, 34),
         BackgroundTransparency = 0.05,
         BorderSizePixel = 0,
@@ -289,11 +279,7 @@ function Library.new(config)
         end
     end)
 
-    self:LoadWeather(
-        config.Weather or {},
-        left + panelWidth + gap,
-        bottom
-    )
+    self:LoadWeather(config.Weather or {})
 
     return self
 end
@@ -354,7 +340,7 @@ function Library:ApplyTheme(data)
     self.ThemeLabel.Text = "THEME  " .. string.upper(theme)
 end
 
-function Library:LoadWeather(config, weatherRight, bottom)
+function Library:LoadWeather(config)
     if self.Destroyed or config.Enabled == false then
         return
     end
@@ -396,12 +382,9 @@ function Library:LoadWeather(config, weatherRight, bottom)
             Parent = getParent(),
             MainWindow = self.Main,
 
-            FollowMain = config.FollowMain == true,
-            Offset = config.Offset or Vector2.new(12, 0),
-            InitialPosition = UDim2.fromOffset(
-                weatherRight + 320,
-                bottom
-            ),
+            FollowMain = true,
+            Offset = Vector2.new(WEATHER_OFFSET_X, 0),
+            InitialPosition = UDim2.fromOffset(WEATHER_X, WEATHER_Y),
 
             Enabled = true,
             Visible = config.Visible ~= false,
@@ -503,7 +486,7 @@ function Library:Animate(open)
 
     if open then
         self.Main.Visible = true
-        self.Main.Size = UDim2.fromOffset(320, 0)
+        self.Main.Size = UDim2.fromOffset(MAIN_WIDTH, 0)
         self.MainScale.Scale = 0.92
 
         for _, object in ipairs(self.FadeObjects) do
@@ -518,7 +501,7 @@ function Library:Animate(open)
                 Enum.EasingDirection.Out
             ),
             {
-                Size = UDim2.fromOffset(320, 550)
+                Size = UDim2.fromOffset(MAIN_WIDTH, MAIN_HEIGHT)
             }
         )
 
@@ -559,7 +542,7 @@ function Library:Animate(open)
                 Enum.EasingDirection.In
             ),
             {
-                Size = UDim2.fromOffset(320, 0)
+                Size = UDim2.fromOffset(MAIN_WIDTH, 0)
             }
         )
 
@@ -673,7 +656,7 @@ end
 
 function Library:SetWeatherFollowMain(enabled, offset)
     if self.Weather then
-        self.Weather:SetFollowMain(enabled, offset)
+        self.Weather:SetFollowMain(true, Vector2.new(WEATHER_OFFSET_X, 0))
     end
 end
 
