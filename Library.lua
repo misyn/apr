@@ -13,10 +13,9 @@ local WEATHER_URL = "https://raw.githubusercontent.com/misyn/apr/refs/heads/main
 
 local function getEnvironment()
     if typeof(getgenv) == "function" then
-        local success, environment = pcall(getgenv)
-
-        if success and environment then
-            return environment
+        local success, result = pcall(getgenv)
+        if success and result then
+            return result
         end
     end
 
@@ -28,7 +27,6 @@ local Environment = getEnvironment()
 local function getParent()
     if typeof(gethui) == "function" then
         local success, result = pcall(gethui)
-
         if success and result then
             return result
         end
@@ -56,16 +54,14 @@ local function disconnect(connection)
     end
 end
 
-local function cleanupGui(parent, name)
-    if not parent then
-        return
+local function getViewport()
+    local camera = workspace.CurrentCamera
+
+    if camera then
+        return camera.ViewportSize
     end
 
-    local existing = parent:FindFirstChild(name)
-
-    if existing then
-        existing:Destroy()
-    end
+    return Vector2.new(1280, 720)
 end
 
 function Library.new(config)
@@ -77,121 +73,146 @@ function Library.new(config)
         end)
     end
 
-    cleanupGui(getParent(), "CustomUILibrary")
-    cleanupGui(getParent(), "MirrorDashboard")
-    cleanupGui(PlayerGui, "CustomUILibrary")
-    cleanupGui(PlayerGui, "MirrorDashboard")
+    local parent = getParent()
+
+    for _, name in ipairs({"CustomUILibrary", "MirrorDashboard"}) do
+        local old = parent:FindFirstChild(name)
+
+        if old then
+            old:Destroy()
+        end
+
+        local playerOld = PlayerGui:FindFirstChild(name)
+
+        if playerOld then
+            playerOld:Destroy()
+        end
+    end
 
     local self = setmetatable({}, Library)
 
     self.Destroyed = false
     self.Visible = true
     self.Keybind = config.Keybind or Enum.KeyCode.RightControl
-
     self.Modules = {}
     self.Connections = {}
 
-    self.MainTheme = "Sync"
+    self.MainTheme = (config.Weather and config.Weather.Theme and config.Weather.Theme.Main) or "Sync"
+
     self.MainTween = nil
     self.ScaleTween = nil
-    self.Animating = false
+    self.AnimationToken = 0
+    self.Dragging = false
+
+    local viewport = getViewport()
+    local panelWidth = 320
+    local panelHeight = 550
+    local gap = 12
+    local totalWidth = panelWidth * 2 + gap
+
+    local left = math.max(12, math.floor((viewport.X - totalWidth) / 2))
+    local bottom = math.floor((viewport.Y + panelHeight) / 2)
+
+    self.MainPosition = Vector2.new(left, bottom)
 
     self.Gui = create("ScreenGui", {
         Name = "CustomUILibrary",
         ResetOnSpawn = false,
         IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    }, getParent())
+    }, parent)
 
     self.Main = create("Frame", {
         Name = "Main",
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Size = UDim2.fromOffset(500, 550),
-        Position = UDim2.new(0.5, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 1),
+        Position = UDim2.fromOffset(left, bottom),
+        Size = UDim2.fromOffset(panelWidth, 0),
         BackgroundColor3 = Color3.fromRGB(29, 30, 34),
-        BackgroundTransparency = 0,
+        BackgroundTransparency = 0.05,
         BorderSizePixel = 0,
         ClipsDescendants = true
     }, self.Gui)
 
     self.MainScale = create("UIScale", {
-        Scale = 1
+        Scale = 0.92
     }, self.Main)
 
-    self.MainGradient = create("UIGradient", {
-        Rotation = 35,
+    self.Atmosphere = create("Frame", {
+        Name = "AtmosphericLighting",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 0.48,
+        BorderSizePixel = 0,
+        ZIndex = 1
+    }, self.Main)
+
+    self.AtmosphereGradient = create("UIGradient", {
+        Rotation = 45,
         Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
             ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
             ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
-        }),
-        Transparency = NumberSequence.new(0.72)
-    }, self.Main)
-
-    create("UICorner", {
-        CornerRadius = UDim.new(0, 10)
-    }, self.Main)
-
-    self.MainStroke = create("UIStroke", {
-        Color = Color3.fromRGB(55, 59, 72),
-        Transparency = 0.35,
-        Thickness = 1
-    }, self.Main)
+        })
+    }, self.Atmosphere)
 
     self.Header = create("Frame", {
         Name = "Header",
-        Size = UDim2.new(1, 0, 0, 42),
-        BackgroundColor3 = Color3.fromRGB(27, 30, 39),
-        BorderSizePixel = 0
+        Size = UDim2.new(1, 0, 0, 48),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 3
     }, self.Main)
-
-    create("UICorner", {
-        CornerRadius = UDim.new(0, 10)
-    }, self.Header)
-
-    create("Frame", {
-        Name = "HeaderCover",
-        Position = UDim2.new(0, 0, 1, -10),
-        Size = UDim2.new(1, 0, 0, 10),
-        BackgroundColor3 = self.Header.BackgroundColor3,
-        BorderSizePixel = 0
-    }, self.Header)
 
     self.Title = create("TextLabel", {
         Name = "Title",
-        Position = UDim2.fromOffset(16, 0),
-        Size = UDim2.new(1, -170, 1, 0),
+        Position = UDim2.fromOffset(23, 10),
+        Size = UDim2.new(1, -46, 0, 23),
         BackgroundTransparency = 1,
-        Text = config.Title or "UI Library",
-        TextColor3 = Color3.fromRGB(240, 242, 248),
-        TextSize = 15,
-        Font = Enum.Font.GothamSemibold,
-        TextXAlignment = Enum.TextXAlignment.Left
+        Text = config.Title or "APR Library",
+        TextColor3 = Color3.fromRGB(239, 240, 244),
+        TextSize = 13,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 4
     }, self.Header)
 
     self.ThemeLabel = create("TextLabel", {
         Name = "ThemeLabel",
         AnchorPoint = Vector2.new(1, 0),
         Position = UDim2.new(1, -16, 0, 0),
-        Size = UDim2.fromOffset(140, 42),
+        Size = UDim2.fromOffset(115, 42),
         BackgroundTransparency = 1,
-        Text = "THEME  SYNC",
-        TextColor3 = Color3.fromRGB(180, 190, 215),
-        TextSize = 10,
+        Text = "THEME  " .. string.upper(self.MainTheme),
+        TextColor3 = Color3.fromRGB(157, 160, 168),
+        TextSize = 9,
         Font = Enum.Font.GothamSemibold,
-        TextXAlignment = Enum.TextXAlignment.Right
+        TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = 4
     }, self.Header)
 
     self.Content = create("Frame", {
         Name = "Content",
         Position = UDim2.fromOffset(14, 56),
         Size = UDim2.new(1, -28, 1, -70),
-        BackgroundTransparency = 1
+        BackgroundTransparency = 1,
+        ZIndex = 3
     }, self.Main)
 
-    self._dragging = false
-    self._dragStart = nil
-    self._startPosition = nil
+    self.FadeObjects = {
+        self.Title,
+        self.ThemeLabel
+    }
+
+    self:ApplyTheme({
+        Theme = self.MainTheme,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
+        }),
+        Transparency = 0.48,
+        Rotation = 45
+    })
 
     table.insert(self.Connections, self.Header.InputBegan:Connect(function(input)
         if self.Destroyed then
@@ -201,27 +222,27 @@ function Library.new(config)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
 
-            self._dragging = true
-            self._dragStart = input.Position
-            self._startPosition = self.Main.Position
+            self.Dragging = true
+            self.DragStart = input.Position
+            self.StartPosition = self.Main.Position
         end
     end))
 
     table.insert(self.Connections, UserInputService.InputChanged:Connect(function(input)
-        if self.Destroyed or not self._dragging then
+        if self.Destroyed or not self.Dragging then
             return
         end
 
         if input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch then
 
-            local delta = input.Position - self._dragStart
+            local delta = input.Position - self.DragStart
 
             self.Main.Position = UDim2.new(
-                self._startPosition.X.Scale,
-                self._startPosition.X.Offset + delta.X,
-                self._startPosition.Y.Scale,
-                self._startPosition.Y.Offset + delta.Y
+                self.StartPosition.X.Scale,
+                self.StartPosition.X.Offset + delta.X,
+                self.StartPosition.Y.Scale,
+                self.StartPosition.Y.Offset + delta.Y
             )
         end
     end))
@@ -230,7 +251,7 @@ function Library.new(config)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
 
-            self._dragging = false
+            self.Dragging = false
         end
     end))
 
@@ -246,21 +267,11 @@ function Library.new(config)
 
     Environment.__APR_LIBRARY_INSTANCE = self
 
-    self:ApplyTheme({
-        Theme = "Sync",
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
-        })
-    })
+    task.spawn(function()
+        self:Animate(true)
+    end)
 
-    self.Main.Size = UDim2.fromOffset(500, 0)
-    self.MainScale.Scale = 0.96
-
-    self:Animate(true)
-
-    self:LoadWeather(config.Weather or {})
+    self:LoadWeather(config.Weather or {}, left + panelWidth + gap, bottom)
 
     return self
 end
@@ -273,81 +284,51 @@ function Library:ApplyTheme(data)
     data = data or {}
 
     local theme = data.Theme or self.MainTheme or "Sync"
-    self.MainTheme = theme
+    local color = data.Color
+    local transparency = data.Transparency or 0.48
+    local rotation = data.Rotation or 45
 
-    local gradient
-    local headerColor
-    local strokeColor
-    local labelColor
-
-    if theme == "Sync" and data.Color then
-        gradient = data.Color
-
-        local keys = gradient.Keypoints
-        local first = keys[1].Value
-        local middle = keys[math.ceil(#keys / 2)].Value
-
-        headerColor = Color3.fromRGB(27, 30, 39):Lerp(first, 0.24)
-        strokeColor = middle:Lerp(Color3.fromRGB(55, 59, 72), 0.55)
-        labelColor = first:Lerp(Color3.new(1, 1, 1), 0.65)
-
-        self.ThemeLabel.Text = "THEME  SYNC"
-    elseif theme == "Light" then
-        gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 228, 241)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(190, 207, 231)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(157, 180, 214))
+    if theme == "Light" then
+        color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(230, 234, 241)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(205, 214, 228)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(178, 192, 213))
         })
-
-        headerColor = Color3.fromRGB(215, 223, 236)
-        strokeColor = Color3.fromRGB(145, 163, 190)
-        labelColor = Color3.fromRGB(70, 87, 117)
-
-        self.ThemeLabel.Text = "THEME  LIGHT"
-    elseif theme == "Dark" or theme == "System" then
-        gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(48, 55, 72)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(30, 36, 51)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(19, 23, 34))
+        transparency = 0.18
+    elseif theme == "Dark" then
+        color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 39, 49)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 29, 39)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 19, 27))
         })
-
-        headerColor = Color3.fromRGB(27, 30, 39)
-        strokeColor = Color3.fromRGB(55, 59, 72)
-        labelColor = Color3.fromRGB(180, 190, 215)
-
-        self.ThemeLabel.Text = theme == "System" and "THEME  SYSTEM" or "THEME  DARK"
-    else
-        return
+        transparency = 0.28
+    elseif theme == "System" then
+        color = color or ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 76, 139)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(35, 49, 91)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 28, 53))
+        })
     end
 
-    self.MainGradient.Color = gradient
+    if color then
+        self.AtmosphereGradient.Color = color
+    end
+
+    self.AtmosphereGradient.Rotation = rotation
 
     TweenService:Create(
-        self.Header,
-        TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+        self.Atmosphere,
+        TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
         {
-            BackgroundColor3 = headerColor
+            BackgroundTransparency = transparency
         }
     ):Play()
 
-    TweenService:Create(
-        self.MainStroke,
-        TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
-        {
-            Color = strokeColor
-        }
-    ):Play()
-
-    TweenService:Create(
-        self.ThemeLabel,
-        TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
-        {
-            TextColor3 = labelColor
-        }
-    ):Play()
+    self.MainTheme = theme
+    self.ThemeLabel.Text = "THEME  " .. string.upper(theme)
 end
 
-function Library:LoadWeather(config)
+function Library:LoadWeather(config, weatherRight, bottom)
     if self.Destroyed or config.Enabled == false then
         return
     end
@@ -356,11 +337,9 @@ function Library:LoadWeather(config)
 
     local success, result = pcall(function()
         local source = game:HttpGet(moduleUrl)
-
         assert(type(source) == "string" and #source > 0, "Weather source is empty")
 
         local compiled = loadstring(source)
-
         assert(type(compiled) == "function", "Weather module failed to compile")
 
         local weatherModule = compiled()
@@ -375,12 +354,12 @@ function Library:LoadWeather(config)
             Parent = getParent(),
             MainWindow = self.Main,
 
-            FollowMain = config.FollowMain ~= false,
+            FollowMain = config.FollowMain == true,
             Offset = config.Offset or Vector2.new(12, 0),
+            InitialPosition = UDim2.fromOffset(weatherRight + 320, bottom),
 
             Enabled = true,
             Visible = config.Visible ~= false,
-
             Keybind = config.Keybind or Enum.KeyCode.G,
 
             Latitude = location.Latitude or 26.3683,
@@ -395,7 +374,7 @@ function Library:LoadWeather(config)
             },
 
             Theme = {
-                Main = theme.Main or "Sync",
+                Main = theme.Main or self.MainTheme or "Sync",
                 Weather = theme.Weather or "Sync"
             },
 
@@ -404,7 +383,9 @@ function Library:LoadWeather(config)
             WindUnit = config.WindUnit or "mph",
 
             OnMainThemeUpdate = function(data)
-                self:ApplyTheme(data)
+                if not self.Destroyed then
+                    self:ApplyTheme(data)
+                end
             end
         })
 
@@ -412,7 +393,6 @@ function Library:LoadWeather(config)
         assert(type(weather.start) == "function", "Weather module has no start method")
 
         local started = weather:start()
-
         assert(started, "Weather failed to start")
 
         return weather
@@ -442,26 +422,31 @@ function Library:Animate(open)
         return
     end
 
+    self.AnimationToken = self.AnimationToken + 1
+    local token = self.AnimationToken
+
     if self.MainTween then
         self.MainTween:Cancel()
-        self.MainTween = nil
     end
 
     if self.ScaleTween then
         self.ScaleTween:Cancel()
-        self.ScaleTween = nil
     end
-
-    self.Animating = true
 
     if open then
         self.Main.Visible = true
+        self.Main.Size = UDim2.fromOffset(320, 0)
+        self.MainScale.Scale = 0.92
+
+        for _, object in ipairs(self.FadeObjects) do
+            object.TextTransparency = 1
+        end
 
         self.MainTween = TweenService:Create(
             self.Main,
             TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
             {
-                Size = UDim2.fromOffset(500, 550)
+                Size = UDim2.fromOffset(320, 550)
             }
         )
 
@@ -469,41 +454,52 @@ function Library:Animate(open)
             self.MainScale,
             TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
             {
-                Scale = 1
+                Scale = 0.92
             }
         )
+
+        self.MainTween:Play()
+        self.ScaleTween:Play()
+
+        for _, object in ipairs(self.FadeObjects) do
+            TweenService:Create(
+                object,
+                TweenInfo.new(0.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                {
+                    TextTransparency = 0
+                }
+            ):Play()
+        end
     else
         self.MainTween = TweenService:Create(
             self.Main,
-            TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+            TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
             {
-                Size = UDim2.fromOffset(500, 0)
+                Size = UDim2.fromOffset(320, 0)
             }
         )
 
         self.ScaleTween = TweenService:Create(
             self.MainScale,
-            TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+            TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
             {
-                Scale = 0.96
+                Scale = 0.92
             }
         )
+
+        self.MainTween:Play()
+        self.ScaleTween:Play()
     end
 
-    self.MainTween:Play()
-    self.ScaleTween:Play()
+    self.MainTween.Completed:Wait()
 
-    local completed = self.MainTween.Completed:Wait()
-
-    if self.Destroyed then
+    if self.Destroyed or token ~= self.AnimationToken then
         return
     end
 
     if not open then
         self.Main.Visible = false
     end
-
-    self.Animating = false
 end
 
 function Library:SetVisible(value)
@@ -525,28 +521,12 @@ function Library:SetVisible(value)
 
     if self.Weather then
         task.spawn(function()
-            if value then
-                self.Weather:Open()
-            else
-                self.Weather:Close()
-            end
+            self.Weather:SetVisible(value)
         end)
     end
 end
 
-function Library:SetKeybind(key)
-    if self.Destroyed then
-        return
-    end
-
-    self.Keybind = key
-end
-
 function Library:Toggle()
-    if self.Destroyed then
-        return
-    end
-
     self:SetVisible(not self.Visible)
 end
 
@@ -556,6 +536,10 @@ end
 
 function Library:Close()
     self:SetVisible(false)
+end
+
+function Library:SetKeybind(key)
+    self.Keybind = key
 end
 
 function Library:ToggleWeather()
@@ -583,7 +567,9 @@ function Library:SetMainTheme(theme)
         return self.Weather:SetMainTheme(theme)
     end
 
-    return false
+    self.MainTheme = theme
+    self:ApplyTheme({Theme = theme})
+    return true
 end
 
 function Library:SetWeatherLocationDisplay(display)
@@ -604,7 +590,8 @@ function Library:Destroy()
     end
 
     self.Destroyed = true
-    self._dragging = false
+    self.AnimationToken = self.AnimationToken + 1
+    self.Dragging = false
 
     if self.MainTween then
         pcall(function()
