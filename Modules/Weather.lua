@@ -2064,7 +2064,7 @@ function weatherapi:bind_updates()
             self:update_weather_effects()
             task.wait(10)
         end
-    end))
+    end)
 
     task.spawn(function()
         while not self.destroyed and self.gui and self.gui.Parent do
