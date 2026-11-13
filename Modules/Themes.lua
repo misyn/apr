@@ -16,7 +16,7 @@ Themes.Midnight = {
     Muted = Color3.fromRGB(174, 183, 201),
     Dim = Color3.fromRGB(125, 137, 159),
 
-    Transparency = 0.16,
+    Transparency = 0.75,
     Rotation = 38
 }
 
