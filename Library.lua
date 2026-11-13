@@ -8,6 +8,8 @@ local UserInputService = game:GetService("UserInputService")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
+local WEATHER_URL = "https://raw.githubusercontent.com/misyn/apr/refs/heads/main/Modules/Weather.lua"
+
 local function getParent()
     if typeof(gethui) == "function" then
         local success, result = pcall(gethui)
@@ -28,7 +30,6 @@ local function create(class, properties, parent)
     end
 
     object.Parent = parent
-
     return object
 end
 
@@ -48,13 +49,13 @@ function Library.new(config)
     self.Destroyed = false
     self.Visible = true
     self.Keybind = config.Keybind or Enum.KeyCode.RightControl
-
     self.Modules = {}
     self.Connections = {}
 
     self.Gui = create("ScreenGui", {
         Name = config.GuiName or "CustomUILibrary",
         ResetOnSpawn = false,
+        IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     }, getParent())
 
@@ -159,7 +160,7 @@ function Library.new(config)
         end
     end))
 
-    self._inputConnection = UserInputService.InputBegan:Connect(function(input, processed)
+    table.insert(self.Connections, UserInputService.InputBegan:Connect(function(input, processed)
         if processed or self.Destroyed then
             return
         end
@@ -167,56 +168,49 @@ function Library.new(config)
         if input.KeyCode == self.Keybind then
             self:Toggle()
         end
-    end)
+    end))
 
-    table.insert(self.Connections, self._inputConnection)
-
-    self:LoadModules(config)
+    self:LoadWeather(config.Weather or {})
 
     return self
 end
 
-function Library:LoadModules(config)
-    config = config or {}
-
-    local weatherConfig = config.Weather or {}
-
-    if weatherConfig.Enabled == false then
+function Library:LoadWeather(config)
+    if self.Destroyed or config.Enabled == false then
         return
     end
 
-    local moduleUrl = weatherConfig.ModuleURL
-
-    if not moduleUrl or moduleUrl == "" then
-        return
-    end
+    local moduleUrl = config.ModuleURL or WEATHER_URL
 
     local success, result = pcall(function()
+        assert(type(loadstring) == "function", "loadstring is unavailable")
+
         local source = game:HttpGet(moduleUrl)
-        local loadModule = loadstring(source)
+        assert(type(source) == "string" and #source > 0, "Weather source is empty")
 
-        assert(type(loadModule) == "function", "Weather module could not be compiled")
+        local compiled = loadstring(source)
+        assert(type(compiled) == "function", "Weather source failed to compile")
 
-        local weatherModule = loadModule()
+        local weatherModule = compiled()
 
         assert(type(weatherModule) == "table", "Weather module did not return a table")
-        assert(type(weatherModule.new) == "function", "Weather module is missing new()")
+        assert(type(weatherModule.new) == "function", "Weather module has no constructor")
 
-        local location = weatherConfig.Location or {}
-        local theme = weatherConfig.Theme or {}
+        local location = config.Location or {}
+        local theme = config.Theme or {}
 
         local weather = weatherModule.new({
             Parent = getParent(),
 
             MainWindow = self.Main,
 
-            FollowMain = weatherConfig.FollowMain ~= false,
-            Offset = weatherConfig.Offset or Vector2.new(340, 0),
+            FollowMain = config.FollowMain ~= false,
+            Offset = config.Offset or Vector2.new(12, 0),
 
             Enabled = true,
-            Visible = weatherConfig.Visible ~= false,
+            Visible = config.Visible ~= false,
 
-            Keybind = weatherConfig.Keybind or Enum.KeyCode.G,
+            Keybind = config.Keybind or Enum.KeyCode.G,
 
             Latitude = location.Latitude or 26.3683,
             Longitude = location.Longitude or -80.1289,
@@ -234,29 +228,32 @@ function Library:LoadModules(config)
                 Weather = theme.Weather or "Sync"
             },
 
-            RefreshInterval = weatherConfig.RefreshInterval or 300,
-            Unit = weatherConfig.Unit or "fahrenheit",
-            WindUnit = weatherConfig.WindUnit or "mph",
+            RefreshInterval = config.RefreshInterval or 300,
+            Unit = config.Unit or "fahrenheit",
+            WindUnit = config.WindUnit or "mph",
 
-            OnMainThemeUpdate = weatherConfig.OnMainThemeUpdate
+            OnMainThemeUpdate = config.OnMainThemeUpdate
         })
 
-        assert(weather, "Weather constructor returned nil")
-        assert(type(weather.start) == "function", "Weather module is missing start()")
+        assert(weather, "Weather constructor returned nil. Check executor request, writefile and getcustomasset support.")
+        assert(type(weather.start) == "function", "Weather module has no start method")
 
         local started = weather:start()
 
-        assert(started, "Weather dashboard failed to start")
+        assert(started, "Weather start failed. Check the warnings from the Weather module.")
 
         return weather
     end)
 
-    if success then
-        self.Weather = result
-        self.Modules.Weather = result
-    else
-        warn("Weather module failed to load: " .. tostring(result))
+    if not success then
+        warn("[APR] Weather failed: " .. tostring(result))
+        return nil
     end
+
+    self.Weather = result
+    self.Modules.Weather = result
+
+    return result
 end
 
 function Library:SetKeybind(key)
@@ -294,60 +291,62 @@ function Library:Close()
     self.Main.Visible = false
 end
 
-function Library:SetWeatherVisible(value)
-    if self.Destroyed or not self.Weather then
-        return
+function Library:ToggleWeather()
+    if self.Weather then
+        self.Weather:Toggle()
     end
-
-    self.Weather:SetVisible(value)
 end
 
-function Library:ToggleWeather()
-    if self.Destroyed or not self.Weather then
-        return
+function Library:OpenWeather()
+    if self.Weather then
+        self.Weather:Open()
     end
+end
 
-    self.Weather:Toggle()
+function Library:CloseWeather()
+    if self.Weather then
+        self.Weather:Close()
+    end
+end
+
+function Library:SetWeatherVisible(value)
+    if self.Weather then
+        self.Weather:SetVisible(value)
+    end
 end
 
 function Library:SetWeatherKeybind(key)
-    if self.Destroyed or not self.Weather then
-        return
+    if self.Weather then
+        self.Weather:SetKeybind(key)
     end
-
-    self.Weather:SetKeybind(key)
 end
 
 function Library:SetWeatherTheme(theme)
-    if self.Destroyed or not self.Weather then
-        return false
+    if self.Weather then
+        return self.Weather:SetWeatherTheme(theme)
     end
 
-    return self.Weather:SetWeatherTheme(theme)
+    return false
 end
 
 function Library:SetMainTheme(theme)
-    if self.Destroyed or not self.Weather then
-        return false
+    if self.Weather then
+        return self.Weather:SetMainTheme(theme)
     end
 
-    return self.Weather:SetMainTheme(theme)
+    return false
 end
 
 function Library:SetWeatherLocationDisplay(display)
-    if self.Destroyed or not self.Weather then
-        return
+    if self.Weather then
+        self.Weather:SetLocationDisplay(display)
     end
-
-    self.Weather:SetLocationDisplay(display)
 end
 
 function Library:SetWeatherFollowMain(enabled, offset)
-    if self.Destroyed or not self.Weather then
-        return
+    if self.Weather then
+        self.Weather:SetFollowMain(enabled, offset)
     end
-
-    self.Weather:SetFollowMain(enabled, offset)
 end
 
 function Library:Destroy()
